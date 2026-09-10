@@ -1,0 +1,1006 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#0C0C0E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Memories4U">
+<meta name="mobile-web-app-capable" content="yes">
+<title>עמדת צילום | Memories4U</title>
+<link rel="icon" type="image/svg+xml" href="assets/img/favicon.svg">
+<link rel="apple-touch-icon" href="assets/img/apple-touch-icon.png">
+<link rel="manifest" href="manifest.json">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="assets/css/style.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Dancing+Script:wght@600&family=Playfair+Display:ital@1&family=Amatic+SC:wght@700&family=Caveat:wght@600&family=Cormorant+Garamond:ital@1&family=Suez+One&family=Frank+Ruhl+Libre:ital,wght@0,500;1,500&family=Bellefair&family=Miriam+Libre:wght@700&family=Secular+One&display=swap">
+<style>
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    background: var(--color-bg);
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: manipulation;
+  }
+  body { display: flex; flex-direction: column; }
+
+  .screen {
+    position: fixed;
+    inset: 0;
+    display: none;
+    flex-direction: column;
+    background: var(--color-bg);
+  }
+  .screen.active { display: flex; }
+
+  /* ---- Lock screen ---- */
+  #screen-lock {
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    text-align: center;
+    gap: 18px;
+  }
+  #screen-lock .badge { width: 84px; height: 84px; border-radius: 50%; }
+  #screen-lock h1 {
+    font-family: var(--font-heading);
+    color: var(--color-gold);
+    font-size: 22px;
+    margin: 0;
+    letter-spacing: .02em;
+  }
+  #lock-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 100%;
+    max-width: 320px;
+  }
+  #lock-input {
+    font-family: var(--font-body);
+    font-size: 20px;
+    padding: 14px 16px;
+    border-radius: 12px;
+    border: 1px solid var(--color-border-input);
+    background: var(--color-surface);
+    color: var(--color-text);
+    text-align: center;
+    letter-spacing: .15em;
+  }
+  #lock-input:focus { outline: 2px solid var(--color-focus); }
+  #lock-error {
+    color: var(--color-error);
+    font-size: 14px;
+    min-height: 18px;
+  }
+
+  /* ---- Welcome screen ---- */
+  #screen-welcome {
+    align-items: center;
+    justify-content: flex-end;
+    text-align: center;
+    background-size: cover;
+    background-position: center;
+    padding-bottom: calc(48px + env(safe-area-inset-bottom));
+  }
+  /* A dark scrim behind the bottom of the screen, not just around the
+     text - whatever is in the uploaded background photo down there
+     (a logo, a line of text) fades out on its own, instead of relying
+     on guessing how much space to leave clear above it. */
+  #screen-welcome::before {
+    content: '';
+    position: absolute;
+    inset: auto 0 0 0;
+    height: 55%;
+    background: linear-gradient(to bottom, rgba(12,12,14,0), rgba(12,12,14,.6) 45%, rgba(12,12,14,.92) 100%);
+    pointer-events: none;
+    z-index: 1;
+  }
+  #welcome-settings-btn {
+    position: absolute;
+    top: calc(14px + env(safe-area-inset-top));
+    left: 14px;
+    z-index: 6;
+    opacity: .8;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: var(--color-surface-2);
+    border: 1px solid var(--color-border);
+    color: var(--color-gold);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    cursor: pointer;
+  }
+  /* No solid card behind the text - on some background photos it showed
+     up as an ugly visible gray box. Legibility comes from the scrim
+     above plus text-shadow. */
+  #welcome-content {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    padding: 0 24px;
+    width: calc(100% - 48px);
+    max-width: 360px;
+  }
+  #welcome-content .badge {
+    width: 72px; height: 72px; border-radius: 50%;
+    filter: drop-shadow(0 2px 10px rgba(0,0,0,.6));
+  }
+  /* When a custom background photo is set, it already carries the full
+     branding - skip the extra logo so it doesn't sit on top of it. */
+  #screen-welcome.has-bg #welcome-content .badge { display: none; }
+  #welcome-content h1 {
+    font-family: var(--font-heading);
+    color: var(--color-gold);
+    font-size: 22px;
+    margin: 0;
+    letter-spacing: .02em;
+    text-shadow: 0 2px 10px rgba(0,0,0,.9), 0 1px 3px #000;
+  }
+  #welcome-start-btn { font-size: 18px; padding: 18px 32px; box-shadow: 0 4px 20px rgba(0,0,0,.5); }
+
+  /* ---- Event settings panel (staff only) ---- */
+  #settings-panel {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.75);
+    display: none;
+    align-items: center; justify-content: center;
+    z-index: 30;
+    padding: 20px;
+  }
+  #settings-panel.active { display: flex; }
+  #settings-box {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 16px;
+    padding: 20px;
+    max-width: 360px;
+    width: 100%;
+    max-height: 86vh;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  #settings-box h2 {
+    font-family: var(--font-heading);
+    color: var(--color-gold);
+    font-size: 18px;
+    margin: 0 0 6px;
+  }
+  .settings-label {
+    font-size: 13px;
+    color: var(--color-text-muted);
+    margin-top: 8px;
+  }
+  #welcome-bg-input {
+    font-size: 13px;
+    color: var(--color-text);
+  }
+  .settings-mode-row { display: flex; gap: 8px; }
+  .settings-mode-row .btn { flex: 1; padding: 10px; font-size: 14px; }
+  .settings-mode-row .btn.active { background: var(--gradient-vivid); color: #211a08; }
+  .save-event-row { display: flex; gap: 8px; }
+  .save-event-row input[type="text"] {
+    flex: 1;
+    font-family: var(--font-body);
+    font-size: 16px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--color-border-input);
+    background: var(--color-bg);
+    color: var(--color-text);
+  }
+  .save-event-row .btn { padding: 10px 14px; font-size: 14px; white-space: nowrap; }
+  #saved-events-list { display: flex; flex-direction: column; gap: 6px; }
+  .saved-event-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    padding: 8px 10px;
+  }
+  .saved-event-name { flex: 1; font-size: 13px; color: var(--color-text); }
+  .saved-event-row .btn { padding: 6px 10px; font-size: 12px; }
+
+  /* ---- Generic small modal (event info / print bridge address) ----
+     Plain on-screen modals instead of window.prompt(), which was found
+     to freeze the live camera video on iOS. */
+  .modal-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.75);
+    display: none;
+    align-items: center; justify-content: center;
+    z-index: 30;
+    padding: 20px;
+  }
+  .modal-overlay.active { display: flex; }
+  .modal-box {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 16px;
+    padding: 20px;
+    max-width: 360px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .modal-box h2 {
+    font-family: var(--font-heading);
+    color: var(--color-gold);
+    font-size: 18px;
+    margin: 0 0 6px;
+  }
+  .modal-box input[type="text"], .modal-box input[type="password"] {
+    font-family: var(--font-body);
+    font-size: 16px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--color-border-input);
+    background: var(--color-bg);
+    color: var(--color-text);
+  }
+  .modal-box input[type="password"] { text-align: center; letter-spacing: .15em; }
+  .modal-error { color: var(--color-error); font-size: 13px; min-height: 16px; margin: 0; }
+  .modal-actions { display: flex; gap: 8px; margin-top: 6px; }
+  .modal-actions .btn { flex: 1; }
+
+  .btn {
+    font-family: var(--font-heading);
+    font-weight: 600;
+    font-size: 16px;
+    border: none;
+    border-radius: 12px;
+    padding: 14px 20px;
+    cursor: pointer;
+    background: var(--gradient-vivid);
+    color: #211a08;
+  }
+  .btn:active { transform: scale(.97); }
+  .btn-ghost {
+    background: var(--color-surface-2);
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+  }
+
+  /* ---- Top bar ---- */
+  /* No solid fill - it was showing up as a visible gray bar/square
+     sitting above whatever's underneath (the photo, the camera feed).
+     The icon buttons already have their own circular background, and
+     the brand text gets a shadow instead, so the bar blends in. */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: calc(10px + env(safe-area-inset-top)) 14px 10px;
+    z-index: 5;
+  }
+  .topbar .brand {
+    font-family: var(--font-heading);
+    color: var(--color-gold);
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: .04em;
+    text-shadow: 0 1px 6px rgba(0,0,0,.9), 0 1px 2px #000;
+  }
+  .topbar .icon-btn {
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    background: var(--color-surface-2);
+    border: 1px solid var(--color-border);
+    color: var(--color-gold);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+    cursor: pointer;
+  }
+  .icon-btn-spacer { width: 40px; height: 40px; flex-shrink: 0; }
+
+  /* ---- Camera screen ---- */
+  #screen-camera { background: #000; }
+  .cam-wrap {
+    position: relative;
+    flex: 1;
+    overflow: hidden;
+    background: #000;
+  }
+  #video {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1);
+  }
+  #flash {
+    position: absolute; inset: 0;
+    background: #fff;
+    opacity: 0;
+    pointer-events: none;
+  }
+  #countdown {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-heading);
+    font-size: 140px;
+    font-weight: 800;
+    color: #fff;
+    text-shadow: 0 4px 24px rgba(0,0,0,.6);
+    pointer-events: none;
+    opacity: 0;
+  }
+  #shot-indicator {
+    position: absolute;
+    top: 14px; left: 0; right: 0;
+    text-align: center;
+    color: #fff;
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 14px;
+    text-shadow: 0 2px 8px rgba(0,0,0,.6);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity .2s ease;
+  }
+  #shot-indicator.show { opacity: 1; }
+  .mode-toggle {
+    position: absolute;
+    top: 14px; left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    background: rgba(12,12,14,.55);
+    border: 1px solid rgba(217,198,150,.4);
+    border-radius: 999px;
+    padding: 4px;
+    gap: 4px;
+    z-index: 3;
+  }
+  .mode-toggle button {
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 600;
+    border: none;
+    border-radius: 999px;
+    padding: 7px 14px;
+    background: transparent;
+    color: rgba(255,255,255,.75);
+    cursor: pointer;
+  }
+  .mode-toggle button.active {
+    background: var(--gradient-vivid);
+    color: #211a08;
+  }
+  .cam-hint {
+    position: absolute;
+    bottom: 14px; left: 0; right: 0;
+    text-align: center;
+    color: rgba(255,255,255,.85);
+    font-size: 13px;
+    pointer-events: none;
+  }
+  .cam-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 18px 18px calc(18px + env(safe-area-inset-bottom));
+    background: var(--color-bg-alt);
+  }
+  #shutter-btn {
+    width: 80px; height: 80px;
+    border-radius: 50%;
+    background: var(--color-gold);
+    border: 5px solid var(--color-gold-soft);
+    cursor: pointer;
+  }
+  #shutter-btn:active { transform: scale(.94); }
+  #shutter-btn[disabled] { opacity: .5; }
+  .cam-error {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 12px; padding: 24px; text-align: center;
+    color: var(--color-text-muted);
+    background: var(--color-bg);
+  }
+
+  /* ---- Result screen ---- */
+  #screen-result { align-items: center; }
+  .result-photo-wrap {
+    position: relative;
+    flex: 1;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px;
+    min-height: 0;
+  }
+  #result-canvas-view {
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: 10px;
+    box-shadow: var(--shadow-gold);
+  }
+  .result-fab-col {
+    position: absolute;
+    top: 50%;
+    left: 12px;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    z-index: 4;
+  }
+  .result-fab-col-right {
+    position: absolute;
+    top: 50%;
+    right: 12px;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    z-index: 4;
+  }
+  .fab-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+  }
+  .fab-btn {
+    width: 92px;
+    height: 92px;
+    border-radius: 50%;
+    border: 1px solid var(--color-border);
+    background: rgba(12,12,14,.72);
+    color: var(--color-gold);
+    font-size: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 4px 16px rgba(0,0,0,.4);
+  }
+  .fab-btn:active { transform: scale(.94); }
+  .fab-btn[disabled] { opacity: .55; }
+  .fab-btn.active {
+    background: var(--color-gold);
+    color: #211a08;
+    border-color: var(--color-gold);
+  }
+  .fab-label {
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text);
+    text-shadow: 0 1px 4px rgba(0,0,0,.8);
+  }
+  .copies-stepper {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(12,12,14,.72);
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    padding: 3px 8px;
+  }
+  .copies-stepper button {
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    border: none;
+    background: var(--color-gold);
+    color: #211a08;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .copies-stepper span {
+    font-size: 12px;
+    color: var(--color-text);
+    min-width: 12px;
+    text-align: center;
+  }
+  .result-actions {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    width: 100%;
+    padding: 14px 14px calc(14px + env(safe-area-inset-bottom));
+    background: var(--color-bg-alt);
+    border-top: 1px solid var(--color-border);
+  }
+  .result-actions .btn { display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .result-actions .full { grid-column: 1 / -1; }
+  /* ---- Gallery screen ---- */
+  #screen-gallery { }
+  .gallery-grid {
+    flex: 1;
+    overflow-y: auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 8px;
+    padding: 10px;
+  }
+  .gallery-item {
+    aspect-ratio: 2/3;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    cursor: pointer;
+    background: var(--color-surface);
+  }
+  .gallery-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .gallery-empty {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    color: var(--color-text-muted); font-size: 15px; padding: 24px; text-align: center;
+  }
+
+  /* ---- Print layout (fallback path only - used when the print-bridge
+     isn't reachable and the OS print dialog is used directly; paper size
+     is whatever the user picks there, so this fills it responsively
+     rather than forcing a fixed physical size) ---- */
+  #print-area { display: none; }
+  @media print {
+    html, body { background: #fff !important; }
+    body > *:not(#print-area) { display: none !important; }
+    #print-area {
+      display: flex !important;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 100vh;
+    }
+    #print-area img { max-width: 100%; max-height: 100%; object-fit: contain; }
+    @page { margin: 0.25in; }
+  }
+
+  #qr-panel {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.75);
+    display: none;
+    align-items: center; justify-content: center;
+    z-index: 20;
+    padding: 20px;
+  }
+  #qr-panel.active { display: flex; }
+  #qr-box {
+    background: var(--color-gold-soft);
+    padding: 20px;
+    border-radius: 16px;
+    text-align: center;
+    max-width: 320px;
+  }
+  #qr-box svg { width: 100%; height: auto; }
+  #qr-box p { color: #1a1610; font-family: var(--font-body); margin: 10px 0 0; font-size: 14px; }
+  #qr-box .btn { margin-top: 14px; width: 100%; }
+
+  #gif-panel {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.75);
+    display: none;
+    align-items: center; justify-content: center;
+    z-index: 20;
+    padding: 20px;
+  }
+  #gif-panel.active { display: flex; }
+  #gif-box {
+    background: var(--color-gold-soft);
+    padding: 20px;
+    border-radius: 16px;
+    text-align: center;
+    max-width: 320px;
+    width: 100%;
+  }
+  #gif-box img { width: 100%; height: auto; border-radius: 10px; display: block; }
+  #gif-box .btn { margin-top: 14px; width: 100%; }
+  #gif-box .btn + .btn { margin-top: 8px; }
+
+  .toast {
+    position: fixed;
+    bottom: 18px; left: 50%;
+    transform: translateX(-50%);
+    background: var(--color-surface-2);
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+    padding: 10px 18px;
+    border-radius: 999px;
+    font-size: 14px;
+    z-index: 50;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .2s ease;
+  }
+  .toast.show { opacity: 1; }
+
+  /* ---- Design editor ---- */
+  #screen-design { background: var(--color-bg-alt); }
+  .design-tabs {
+    display: flex;
+    gap: 8px;
+    padding: 10px 14px 0;
+  }
+  .design-tabs button {
+    flex: 1;
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-weight: 600;
+    padding: 9px;
+    border-radius: 999px;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface-2);
+    color: var(--color-text-muted);
+    cursor: pointer;
+  }
+  .design-tabs button.active {
+    background: var(--gradient-vivid);
+    color: #211a08;
+    border-color: transparent;
+  }
+  .design-preview-wrap {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px;
+    min-height: 0;
+    overflow: hidden;
+  }
+  #design-canvas {
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: 8px;
+    box-shadow: var(--shadow-gold);
+    touch-action: none;
+    cursor: grab;
+  }
+  .design-controls {
+    background: var(--color-bg-alt);
+    border-top: 1px solid var(--color-border);
+    padding: 12px 16px 18px;
+    max-height: 48vh;
+    overflow-y: auto;
+  }
+  .design-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .design-row label {
+    width: 130px;
+    flex-shrink: 0;
+    font-size: 13px;
+    color: var(--color-text-muted);
+  }
+  .design-row input[type="range"] { flex: 1; }
+  .design-row .val {
+    width: 34px;
+    text-align: left;
+    font-size: 12px;
+    color: var(--color-text-muted);
+  }
+  .design-row input[type="color"] {
+    flex: 1;
+    height: 34px;
+    padding: 0;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    background: none;
+  }
+  /* font-size is 16px minimum on every text input in this file
+     deliberately - iOS Safari auto-zooms the whole page on focus for
+     any input under 16px, which in this fixed-position app layout
+     looked like the screen "running away" while typing. */
+  .design-select {
+    flex: 1;
+    font-family: var(--font-body);
+    font-size: 16px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-text);
+  }
+  .emoji-picker {
+    flex: 1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+  }
+  .emoji-opt {
+    width: 38px;
+    height: 38px;
+    flex-shrink: 0;
+    font-size: 19px;
+    border-radius: 10px;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .emoji-opt.active { border-color: var(--color-gold); background: var(--color-gold-soft); }
+  .emoji-picker .design-select { flex-basis: 100%; margin-top: 6px; }
+
+  /* ---- Design editor: layer chips, add row, per-layer panel ---- */
+  .layer-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  .layer-chip {
+    font-family: var(--font-body);
+    font-size: 13px;
+    padding: 7px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-text);
+    cursor: pointer;
+    unicode-bidi: plaintext;
+  }
+  .layer-chip.active { border-color: var(--color-gold); background: var(--color-gold-soft); color: #211a08; }
+  .layer-add-row { display: flex; gap: 8px; margin-bottom: 12px; }
+  .layer-add-row .btn { flex: 1; padding: 9px; font-size: 13px; }
+  .layer-panel {
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    padding: 12px;
+    margin-bottom: 14px;
+    background: var(--color-bg);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .layer-actions { display: flex; gap: 6px; }
+  .layer-action-btn { flex: 1; padding: 8px; font-size: 12px; white-space: nowrap; }
+  .btn-danger { border-color: #7a2f2f; color: #e08a8a; }
+  .layer-panel .emoji-picker + .design-select { margin-top: 6px; }
+  .design-section-title {
+    font-family: var(--font-heading);
+    color: var(--color-gold);
+    font-size: 14px;
+    margin: 4px 0 8px;
+  }
+  .design-hint {
+    font-size: 12px;
+    color: var(--color-text-muted);
+    text-align: center;
+    margin: 0 0 10px;
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ LOCK SCREEN ============ -->
+<div id="screen-lock" class="screen active">
+  <img class="badge" src="assets/img/logo-ig.jpg" alt="Memories4U">
+  <h1>עמדת הצילום של Memories4U</h1>
+  <form id="lock-form" autocomplete="off">
+    <input id="lock-input" type="password" inputmode="text" placeholder="סיסמה" autocomplete="off">
+    <div id="lock-error"></div>
+    <button type="submit" class="btn">כניסה</button>
+  </form>
+</div>
+
+<!-- ============ WELCOME SCREEN ============ -->
+<div id="screen-welcome" class="screen">
+  <button class="icon-btn" id="welcome-settings-btn" aria-label="הגדרות אירוע" title="הגדרות אירוע">⚙</button>
+  <div id="welcome-content">
+    <img class="badge" src="assets/img/logo-ig.jpg" alt="Memories4U">
+    <h1>עמדת הצילום של Memories4U</h1>
+    <button class="btn" id="welcome-start-btn">📸 התחילו לצלם</button>
+  </div>
+</div>
+
+<!-- ============ EVENT SETTINGS PANEL (staff only) ============ -->
+<div id="settings-panel">
+  <div id="settings-box">
+    <h2>הגדרות אירוע</h2>
+    <label class="settings-label">רקע למסך הפתיחה</label>
+    <input type="file" id="welcome-bg-input" accept="image/*">
+    <button class="btn btn-ghost" id="welcome-bg-clear-btn">איפוס רקע לברירת מחדל</button>
+    <label class="settings-label">מצב צילום (קבוע לכל האירוע)</label>
+    <div class="settings-mode-row">
+      <button type="button" class="btn btn-ghost" id="settings-mode-strip">📸 סטריפ 3</button>
+      <button type="button" class="btn btn-ghost" id="settings-mode-wide">🖼 תמונה רחבה</button>
+    </div>
+    <label class="settings-label">ניהול</label>
+    <div class="settings-mode-row">
+      <button type="button" class="btn btn-ghost" id="event-settings-btn">📝 פרטי אירוע</button>
+      <button type="button" class="btn btn-ghost" id="design-editor-btn">🎨 עריכת עיצוב</button>
+    </div>
+    <div class="settings-mode-row">
+      <button type="button" class="btn btn-ghost" id="print-settings-btn">🖨 כתובת הדפסה</button>
+      <button type="button" class="btn btn-ghost" id="open-gallery-btn">🖼 גלריה</button>
+    </div>
+    <label class="settings-label">אירועים שמורים (שם, תאריך, רקע ועיצוב)</label>
+    <div class="save-event-row">
+      <input type="text" id="save-event-name-input" placeholder="שם לשמירה, למשל דויד ושושנה">
+      <button class="btn btn-ghost" id="save-event-btn">💾 שמירה</button>
+    </div>
+    <div id="saved-events-list"></div>
+    <button class="btn" id="settings-close-btn">סגירה</button>
+  </div>
+</div>
+
+<!-- ============ EVENT INFO MODAL (title/date printed on the strip) ============ -->
+<div class="modal-overlay" id="event-modal">
+  <div class="modal-box">
+    <h2>פרטי האירוע</h2>
+    <label class="settings-label">שם האירוע (יודפס על הסטריפ)</label>
+    <input type="text" id="event-title-input" placeholder="למשל החתונה של דנה ויוסי">
+    <label class="settings-label">תאריך האירוע (יודפס על הסטריפ), למשל 27 | נובמבר | 2026</label>
+    <input type="text" id="event-date-input" placeholder="27 | נובמבר | 2026">
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="event-modal-cancel">ביטול</button>
+      <button class="btn" id="event-modal-save">שמירה</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ PRINT BRIDGE ADDRESS MODAL ============ -->
+<div class="modal-overlay" id="print-modal">
+  <div class="modal-box">
+    <h2>כתובת ההדפסה</h2>
+    <label class="settings-label">כתובת הגשר מ-cloudflared (למשל https://random-words-1234.trycloudflare.com). השאירו ריק כדי להשתמש בתיבת ההדפסה הרגילה של הדפדפן.</label>
+    <input type="text" id="print-bridge-input" placeholder="https://...trycloudflare.com">
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="print-modal-cancel">ביטול</button>
+      <button class="btn" id="print-modal-save">שמירה</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ ADMIN PASSWORD MODAL (leaving the camera screen) ============ -->
+<div class="modal-overlay" id="admin-modal">
+  <div class="modal-box">
+    <h2>חזרה לניהול</h2>
+    <label class="settings-label">הזינו סיסמה</label>
+    <input type="password" id="admin-password-input" placeholder="סיסמה" autocomplete="off">
+    <p id="admin-password-error" class="modal-error"></p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="admin-modal-cancel">ביטול</button>
+      <button class="btn" id="admin-modal-confirm">אישור</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ CAMERA SCREEN ============ -->
+<div id="screen-camera" class="screen">
+  <!-- Guest-facing: camera only. Staff controls (print/event/design/
+       gallery) live behind the password-gated arrow below, under
+       ⚙ on the main screen - guests never see or touch them. -->
+  <div class="topbar">
+    <button class="icon-btn" id="camera-admin-btn" aria-label="ניהול" title="חזרה לניהול (דורש סיסמה)">‹</button>
+    <span class="brand">Memories4U</span>
+    <span class="icon-btn-spacer" aria-hidden="true"></span>
+  </div>
+  <div class="cam-wrap">
+    <video id="video" playsinline autoplay muted></video>
+    <div id="shot-indicator"></div>
+    <div id="flash"></div>
+    <div id="countdown"></div>
+    <div class="cam-hint">לחצו על הכפתור כדי לצלם</div>
+    <div id="cam-error" class="cam-error" style="display:none"></div>
+  </div>
+  <div class="cam-controls">
+    <button id="shutter-btn" aria-label="צלם"></button>
+  </div>
+</div>
+
+<!-- ============ RESULT SCREEN ============ -->
+<div id="screen-result" class="screen">
+  <div class="topbar">
+    <button class="icon-btn" id="result-back-btn" aria-label="חזרה">›</button>
+    <span class="brand">התמונה שלכם</span>
+    <button class="icon-btn" id="result-gallery-btn" aria-label="גלריה" title="גלריה">🖼</button>
+  </div>
+  <div class="result-photo-wrap">
+    <img id="result-canvas-view" alt="התמונה שצולמה">
+    <div class="result-fab-col">
+      <div class="fab-item">
+        <button class="fab-btn" id="btn-share" aria-label="שיתוף">📤</button>
+        <span class="fab-label">שיתוף</span>
+      </div>
+      <div class="fab-item">
+        <button class="fab-btn" id="btn-qr" aria-label="QR לצילום">📱</button>
+        <span class="fab-label">QR לטלפון</span>
+      </div>
+      <div class="fab-item" id="gif-fab-item" style="display:none">
+        <button class="fab-btn" id="btn-gif" aria-label="GIF">🎞️</button>
+        <span class="fab-label">GIF</span>
+      </div>
+    </div>
+    <div class="result-fab-col-right">
+      <div class="fab-item">
+        <button class="fab-btn" id="btn-retake" aria-label="צילום נוסף">📷</button>
+        <span class="fab-label">צילום נוסף</span>
+      </div>
+      <div class="fab-item">
+        <button class="fab-btn" id="btn-bw" aria-label="שחור-לבן">◐</button>
+        <span class="fab-label">שחור-לבן</span>
+      </div>
+      <div class="fab-item">
+        <button class="fab-btn" id="btn-print" aria-label="הדפסה">🖨</button>
+        <span class="fab-label">הדפסה</span>
+        <div class="copies-stepper">
+          <button type="button" id="copies-minus" aria-label="פחות עותקים">−</button>
+          <span id="copies-count">1</span>
+          <button type="button" id="copies-plus" aria-label="יותר עותקים">+</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="result-actions">
+    <button class="btn btn-ghost full" id="btn-delete" style="display:none">🗑 מחיקת התמונה</button>
+  </div>
+</div>
+
+<!-- ============ GALLERY SCREEN ============ -->
+<div id="screen-gallery" class="screen">
+  <div class="topbar">
+    <button class="icon-btn" id="gallery-back-btn" aria-label="חזרה למצלמה">›</button>
+    <span class="brand">כל התמונות</span>
+    <button class="icon-btn" id="export-all-btn" aria-label="ייצוא כל התמונות" title="ייצוא כל התמונות">📦</button>
+  </div>
+  <div id="gallery-grid" class="gallery-grid"></div>
+</div>
+
+<!-- ============ DESIGN EDITOR ============ -->
+<div id="screen-design" class="screen">
+  <div class="topbar">
+    <button class="icon-btn" id="design-back-btn" aria-label="חזרה">›</button>
+    <span class="brand">עורך עיצוב</span>
+    <button class="icon-btn" id="design-reset-btn" aria-label="איפוס" title="איפוס לברירת מחדל">↺</button>
+  </div>
+  <div class="design-tabs">
+    <button type="button" id="design-tab-strip">סטריפ 3</button>
+    <button type="button" id="design-tab-wide">תמונה רחבה</button>
+  </div>
+  <p class="design-hint">גררו את הטקסט למיקום הרצוי, והשתמשו במחוונים לגבולות ולגדלים</p>
+  <div class="design-preview-wrap">
+    <canvas id="design-canvas"></canvas>
+  </div>
+  <div class="design-controls" id="design-controls"></div>
+</div>
+
+<div id="print-area"><img id="print-img" alt=""></div>
+
+<div id="qr-panel">
+  <div id="qr-box">
+    <div id="qr-render"></div>
+    <p id="qr-status">מעלים את התמונה…</p>
+    <button class="btn btn-ghost" id="qr-close-btn">סגירה</button>
+  </div>
+</div>
+
+<div id="gif-panel">
+  <div id="gif-box">
+    <img id="gif-view" alt="GIF">
+    <button class="btn" id="gif-share-btn">📤 שיתוף</button>
+    <button class="btn btn-ghost" id="gif-close-btn">סגירה</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="assets/js/jszip.min.js"></script>
+<script src="assets/js/qrcode-generator.js"></script>
+<script src="assets/js/gifenc.js"></script>
+<script src="assets/js/app.js"></script>
+</body>
+</html>

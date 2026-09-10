@@ -1,0 +1,11 @@
+{
+  "name": "Memories4U Photobooth",
+  "short_name": "Memories4U",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0C0C0E",
+  "theme_color": "#0C0C0E",
+  "icons": [
+    { "src": "assets/img/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }
+  ]
+}
