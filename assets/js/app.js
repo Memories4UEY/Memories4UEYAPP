@@ -1,11 +1,6 @@
 (function () {
   'use strict';
 
-  // TEMP - true shows the 4-way orientation comparison grid instead of a
-  // normal wide photo, to nail the wide-photo rotation bug in one round.
-  // Set back to false once the correct rotation is confirmed and fixed.
-  var DIAGNOSTIC_ORIENTATION_MODE = true;
-
   // ---------- Config ----------
   var PASSWORD_HASH = '03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4'; // sha256("1234")
   var BOOTH_TOKEN = 'm4u-booth-2026';
@@ -614,77 +609,30 @@
     });
   }
 
-  // Rotates a landscape (wider-than-tall) canvas 90° into a portrait one.
-  // The front camera can hand back a landscape-shaped raw frame even
-  // though the ideal capture size requested was portrait - "wide photo"
-  // mode is meant to always be a single portrait card, never landscape.
-  function ensurePortrait(frame) {
+  // This iPad's front camera hands back an already-upright frame - just
+  // in a landscape-shaped buffer (proven with a real test shot: rotating
+  // it always turned correctly-oriented content sideways). So a
+  // landscape raw frame isn't rotated - it's center-cropped down to a
+  // portrait aspect ratio instead, matching the portrait card "wide
+  // photo" mode is meant to produce.
+  function cropToPortrait(frame) {
     if (frame.width <= frame.height) return frame;
+    var targetAspect = 3 / 4; // width/height, matches the ideal capture constraints
+    var targetW = Math.round(frame.height * targetAspect);
+    if (targetW >= frame.width) return frame;
     var c = document.createElement('canvas');
-    c.width = frame.height;
-    c.height = frame.width;
+    c.width = targetW;
+    c.height = frame.height;
     var ctx = c.getContext('2d');
-    ctx.translate(c.width / 2, c.height / 2);
-    // This iPad's front camera hands back a landscape frame that needs a
-    // counter-clockwise turn to stand upright (rotating +90 here was
-    // turning the subject to face the wrong way - reported as coming out
-    // sideways/reversed).
-    ctx.rotate(-Math.PI / 2);
-    ctx.drawImage(frame, -frame.width / 2, -frame.height / 2);
+    var sx = Math.round((frame.width - targetW) / 2);
+    ctx.drawImage(frame, sx, 0, targetW, frame.height, 0, 0, targetW, frame.height);
     return c;
-  }
-
-  function rotate90(frame) {
-    var c = document.createElement('canvas');
-    c.width = frame.height;
-    c.height = frame.width;
-    var ctx = c.getContext('2d');
-    ctx.translate(c.width / 2, c.height / 2);
-    ctx.rotate(Math.PI / 2);
-    ctx.drawImage(frame, -frame.width / 2, -frame.height / 2);
-    return c;
-  }
-
-  // TEMP DIAGNOSTIC ONLY - shows the same captured frame rotated all 4
-  // ways at once (labeled A-D) so which one is actually upright can be
-  // picked by eye in a single round instead of guessing one direction
-  // at a time. Remove once the correct rotation is confirmed and
-  // hardcoded into ensurePortrait.
-  function composeOrientationDiagnostic(rawFrameCaptured) {
-    var variants = [rawFrameCaptured];
-    for (var i = 0; i < 3; i++) variants.push(rotate90(variants[variants.length - 1]));
-    var cellW = 320, cellH = 320, topPad = 50;
-    var canvas = document.createElement('canvas');
-    canvas.width = cellW * 2;
-    canvas.height = cellH * 2 + topPad;
-    var ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#000';
-    ctx.font = 'bold 20px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('איזו אות מציגה את התמונה ישר?', canvas.width / 2, 32);
-    var labels = ['A', 'B', 'C', 'D'];
-    var positions = [[0, topPad], [cellW, topPad], [0, topPad + cellH], [cellW, topPad + cellH]];
-    variants.forEach(function (v, i) {
-      var x = positions[i][0], y = positions[i][1];
-      var scale = Math.min(cellW / v.width, cellH / v.height);
-      var dw = v.width * scale, dh = v.height * scale;
-      ctx.drawImage(v, x + (cellW - dw) / 2, y + (cellH - dh) / 2, dw, dh);
-      ctx.strokeStyle = '#ccc';
-      ctx.strokeRect(x, y, cellW, cellH);
-      ctx.fillStyle = 'red';
-      ctx.font = 'bold 26px sans-serif';
-      ctx.textAlign = 'left';
-      ctx.fillText(labels[i], x + 8, y + 30);
-    });
-    return canvas;
   }
 
   // Full photo on a white card with a script event name + date + brand
   // line underneath, matching the printed single-photo cards.
   function composeWide(frame, design, hits) {
-    frame = ensurePortrait(frame);
+    frame = cropToPortrait(frame);
     design = design || getWideDesign();
     var vw = frame.width, vh = frame.height;
     var margin = Math.round(vw * design.marginPct);
@@ -971,12 +919,6 @@
         return applyBackgroundReplacement(frame);
       }).then(function (frame) {
         lastWideFrame = frame;
-        // TEMP - see composeOrientationDiagnostic comment. Flip this
-        // back to `finishCapture(composeWide(frame))` once the correct
-        // rotation is confirmed and hardcoded.
-        if (DIAGNOSTIC_ORIENTATION_MODE) {
-          return finishCapture(composeOrientationDiagnostic(frame));
-        }
         return finishCapture(composeWide(frame));
       });
     } else {
