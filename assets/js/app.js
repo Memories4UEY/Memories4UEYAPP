@@ -25,22 +25,29 @@
     slant1: { label: 'נטוי אלגנטי', family: '"Frank Ruhl Libre", serif', italic: true },
     slant2: { label: 'נטוי מודרני', family: '"Rubik", sans-serif', italic: true },
     slant3: { label: 'נטוי עגול', family: '"Secular One", sans-serif', italic: true },
-    slant4: { label: 'נטוי רך', family: '"Miriam Libre", sans-serif', italic: true }
+    slant4: { label: 'נטוי רך', family: '"Miriam Libre", sans-serif', italic: true },
+    englishBrush: { label: 'אנגלי - Brush אלגנטי', family: '"Alex Brush", cursive' },
+    englishAllura: { label: 'אנגלי - כתב יד זורם', family: '"Allura", cursive' },
+    englishParisienne: { label: 'אנגלי - פריזאי', family: '"Parisienne", cursive' },
+    englishTangerine: { label: 'אנגלי - עדין וקלאסי', family: '"Tangerine", cursive' },
+    englishPinyon: { label: 'אנגלי - חתונה קלאסית', family: '"Pinyon Script", cursive' }
   };
   // Note: several of the Latin script fonts above (Great Vibes, Dancing
-  // Script, Playfair Display, Amatic SC, Caveat, Cormorant Garamond) don't
-  // include Hebrew glyphs - Hebrew text in those falls back to a plain
-  // font. The "hebrew*" options are chosen specifically because they do
-  // support Hebrew. The "slant*" options apply a synthetic italic/oblique
-  // lean (via canvas font-style, browser-rendered even for fonts without
-  // a real italic face) on top of fonts already confirmed to support
-  // Hebrew, rather than relying on decorative font families whose Hebrew
-  // glyph coverage isn't guaranteed.
+  // Script, Playfair Display, Amatic SC, Caveat, Cormorant Garamond, and
+  // all the "english*" ones) don't include Hebrew glyphs - Hebrew text in
+  // those falls back to a plain font. The "hebrew*" options are chosen
+  // specifically because they do support Hebrew, and "english*" are
+  // elegant script fonts meant for Latin-alphabet text (names, dates in
+  // English etc.) rather than Hebrew. The "slant*" options apply a
+  // synthetic italic/oblique lean (via canvas font-style, browser-
+  // rendered even for fonts without a real italic face) on top of fonts
+  // already confirmed to support Hebrew.
   var FONT_PRELOAD = [
     '52px "Great Vibes"', '52px "Dancing Script"', 'italic 52px "Playfair Display"',
     '52px "Amatic SC"', '52px "Caveat"', 'italic 52px "Cormorant Garamond"', '52px "Suez One"',
     '52px "Frank Ruhl Libre"', '52px "Bellefair"', '52px "Miriam Libre"', '52px "Secular One"',
-    'italic 52px "Frank Ruhl Libre"', 'italic 52px "Rubik"', 'italic 52px "Secular One"', 'italic 52px "Miriam Libre"'
+    'italic 52px "Frank Ruhl Libre"', 'italic 52px "Rubik"', 'italic 52px "Secular One"', 'italic 52px "Miriam Libre"',
+    '52px "Alex Brush"', '52px "Allura"', '52px "Parisienne"', '52px "Tangerine"', '52px "Pinyon Script"'
   ];
   if (document.fonts && document.fonts.load) {
     FONT_PRELOAD.forEach(function (f) {
@@ -260,6 +267,8 @@
       eventInfo: getEventInfo(),
       captureMode: captureMode,
       welcomeBg: localStorage.getItem(WELCOME_BG_KEY) || null,
+      bgMode: localStorage.getItem(BG_MODE_KEY) || 'none',
+      bgColor: localStorage.getItem(BG_COLOR_KEY) || '#FFFFFF',
       stripDesign: getStripDesign(),
       wideDesign: getWideDesign()
     };
@@ -273,6 +282,9 @@
       localStorage.removeItem(WELCOME_BG_KEY);
     }
     applyWelcomeBg();
+    localStorage.setItem(BG_COLOR_KEY, setup.bgColor || '#FFFFFF');
+    setBgMode(setup.bgMode || 'none');
+    $('bg-color-input').value = getBgColor();
     if (setup.stripDesign) saveDesign(STRIP_DESIGN_KEY, setup.stripDesign);
     if (setup.wideDesign) saveDesign(WIDE_DESIGN_KEY, setup.wideDesign);
   }
@@ -512,9 +524,52 @@
   // is filled with each layer's approximate on-canvas bounding box (used
   // only by the design editor for click/drag hit-testing - rotation is
   // ignored for the hit box itself, just for the actual drawn text).
+  // Image layers (uploaded logos) need to be decoded before they can be
+  // drawn, but composeStrip/composeWide/renderLayers are all synchronous
+  // (a live capture needs a canvas back immediately). So decoded images
+  // are cached here ahead of time; a layer whose image isn't loaded yet
+  // just doesn't draw for that one frame, and the design editor's
+  // preview re-renders itself once the load finishes.
+  var IMAGE_LAYER_CACHE = {};
+  function preloadLayerImage(src) {
+    if (IMAGE_LAYER_CACHE[src]) return;
+    var entry = { img: new Image(), loaded: false };
+    IMAGE_LAYER_CACHE[src] = entry;
+    entry.img.onload = function () {
+      entry.loaded = true;
+      if ($('screen-design').classList.contains('active')) renderDesignPreview();
+    };
+    entry.img.src = src;
+  }
+  function preloadDesignImages(design) {
+    design.layers.forEach(function (layer) {
+      if (layer.type === 'image' && layer.src) preloadLayerImage(layer.src);
+    });
+  }
+
   function renderLayers(ctx, design, W, H, isWide, hits) {
+    preloadDesignImages(design);
     var info = getEventInfo();
     design.layers.forEach(function (layer) {
+      if (layer.type === 'image') {
+        var cacheEntry = layer.src ? IMAGE_LAYER_CACHE[layer.src] : null;
+        if (!cacheEntry || !cacheEntry.loaded) return;
+        var img = cacheEntry.img;
+        var iw = W * (layer.size / 100);
+        var ih = iw * (img.naturalHeight / img.naturalWidth);
+        var ipx = layer.x * W, ipy = layer.y * H;
+        ctx.save();
+        if (layer.rotation) {
+          ctx.translate(ipx, ipy);
+          ctx.rotate(layer.rotation * Math.PI / 180);
+          ctx.drawImage(img, -iw / 2, -ih / 2, iw, ih);
+        } else {
+          ctx.drawImage(img, ipx - iw / 2, ipy - ih / 2, iw, ih);
+        }
+        ctx.restore();
+        if (hits) hits.push({ key: layer.id, x: ipx - iw / 2, y: ipy - ih / 2, w: iw, h: ih });
+        return;
+      }
       var text = layer.type === 'emoji' ? (layer.text || '♥') : layer.text;
       if (layer.auto === 'title') text = info.title;
       if (layer.auto === 'date') text = info.date;
@@ -557,9 +612,26 @@
     });
   }
 
+  // Rotates a landscape (wider-than-tall) canvas 90° into a portrait one.
+  // The front camera can hand back a landscape-shaped raw frame even
+  // though the ideal capture size requested was portrait - "wide photo"
+  // mode is meant to always be a single portrait card, never landscape.
+  function ensurePortrait(frame) {
+    if (frame.width <= frame.height) return frame;
+    var c = document.createElement('canvas');
+    c.width = frame.height;
+    c.height = frame.width;
+    var ctx = c.getContext('2d');
+    ctx.translate(c.width / 2, c.height / 2);
+    ctx.rotate(Math.PI / 2);
+    ctx.drawImage(frame, -frame.width / 2, -frame.height / 2);
+    return c;
+  }
+
   // Full photo on a white card with a script event name + date + brand
   // line underneath, matching the printed single-photo cards.
   function composeWide(frame, design, hits) {
+    frame = ensurePortrait(frame);
     design = design || getWideDesign();
     var vw = frame.width, vh = frame.height;
     var margin = Math.round(vw * design.marginPct);
@@ -708,6 +780,102 @@
     });
   }
 
+  // ---------- Background replacement ("green screen" without a green
+  // screen) - an optional, staff-toggled setting (⚙ on the main screen).
+  // Off by default; when on, every captured frame has its real
+  // background swapped for a plain backdrop, using MediaPipe's Selfie
+  // Segmentation model to tell person from background. Runs entirely in
+  // the browser, but the model itself is fetched from Google's CDN the
+  // first time it's used each session - unlike the rest of the app, this
+  // one feature needs internet the first time. If it fails for any
+  // reason (no internet, model error), capture falls back to the
+  // original, unmodified photo rather than breaking the flow.
+  var BG_MODE_KEY = 'm4u_bg_mode'; // 'none' | 'white' | 'color'
+  var BG_COLOR_KEY = 'm4u_bg_color';
+  function getBgMode() { return localStorage.getItem(BG_MODE_KEY) || 'none'; }
+  function getBgColor() { return localStorage.getItem(BG_COLOR_KEY) || '#FFFFFF'; }
+
+  var selfieSegmentation = null;
+  var segmentationLoad = null;
+  function ensureSegmentation() {
+    if (segmentationLoad) return segmentationLoad;
+    segmentationLoad = new Promise(function (resolve, reject) {
+      var script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation@0.1.1675465747/selfie_segmentation.js';
+      script.onload = function () {
+        try {
+          selfieSegmentation = new SelfieSegmentation({
+            locateFile: function (file) {
+              return 'https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation@0.1.1675465747/' + file;
+            }
+          });
+          selfieSegmentation.setOptions({ modelSelection: 1 });
+          resolve();
+        } catch (e) { reject(e); }
+      };
+      script.onerror = function () { reject(new Error('לא ניתן לטעון את מודל הרקע (בדקו חיבור אינטרנט)')); };
+      document.head.appendChild(script);
+    });
+    return segmentationLoad;
+  }
+
+  function segmentFrame(frame) {
+    return new Promise(function (resolve, reject) {
+      selfieSegmentation.onResults(function (results) {
+        resolve(results.segmentationMask);
+      });
+      selfieSegmentation.send({ image: frame }).catch(reject);
+    });
+  }
+
+  // Cuts the person out of `frame` (using the segmentation mask) and
+  // composites them onto a plain backdrop in the chosen color.
+  function applyBackgroundReplacement(frame) {
+    var mode = getBgMode();
+    if (mode === 'none') return Promise.resolve(frame);
+    return ensureSegmentation().then(function () {
+      return segmentFrame(frame);
+    }).then(function (mask) {
+      var w = frame.width, h = frame.height;
+      var personCanvas = document.createElement('canvas');
+      personCanvas.width = w;
+      personCanvas.height = h;
+      var pctx = personCanvas.getContext('2d');
+      pctx.drawImage(frame, 0, 0, w, h);
+      pctx.globalCompositeOperation = 'destination-in';
+      pctx.drawImage(mask, 0, 0, w, h);
+
+      var out = document.createElement('canvas');
+      out.width = w;
+      out.height = h;
+      var octx = out.getContext('2d');
+      octx.fillStyle = mode === 'white' ? '#FFFFFF' : getBgColor();
+      octx.fillRect(0, 0, w, h);
+      octx.drawImage(personCanvas, 0, 0);
+      return out;
+    }).catch(function (err) {
+      console.warn('Background replacement failed, using the original photo:', err);
+      return frame;
+    });
+  }
+
+  function setBgMode(mode) {
+    localStorage.setItem(BG_MODE_KEY, mode);
+    $('bg-mode-none').classList.toggle('active', mode === 'none');
+    $('bg-mode-white').classList.toggle('active', mode === 'white');
+    $('bg-mode-color').classList.toggle('active', mode === 'color');
+    if (mode !== 'none') ensureSegmentation().catch(function () {}); // warm the model up in advance
+  }
+  $('bg-mode-none').addEventListener('click', function () { setBgMode('none'); });
+  $('bg-mode-white').addEventListener('click', function () { setBgMode('white'); });
+  $('bg-mode-color').addEventListener('click', function () { setBgMode('color'); });
+  $('bg-color-input').addEventListener('input', function () {
+    localStorage.setItem(BG_COLOR_KEY, this.value);
+    if (getBgMode() === 'color') setBgMode('color');
+  });
+  $('bg-color-input').value = getBgColor();
+  setBgMode(getBgMode());
+
   function capture() {
     if (countingDown) return;
     countingDown = true;
@@ -719,6 +887,8 @@
       indicator.classList.remove('show');
       currentGifBlob = null;
       chain = countdownAndShoot().then(function (frame) {
+        return applyBackgroundReplacement(frame);
+      }).then(function (frame) {
         lastWideFrame = frame;
         return finishCapture(composeWide(frame));
       });
@@ -729,6 +899,8 @@
         indicator.textContent = 'תמונה ' + (frames.length + 1) + ' מתוך ' + shotCount;
         indicator.classList.add('show');
         return countdownAndShoot().then(function (frame) {
+          return applyBackgroundReplacement(frame);
+        }).then(function (frame) {
           frames.push(frame);
           if (frames.length < shotCount) {
             return new Promise(function (r) { setTimeout(r, 900); }).then(nextShot);
@@ -1069,7 +1241,7 @@
   // colors) - ♥ ❤ ❦ ❧ render filled-in and respect whatever color is
   // picked (so choosing black gives a solid black heart); 🖤 is the one
   // glyph that's always solid black by definition.
-  var EMOJI_PRESETS = ['♥', '❤', '🖤', '❦', '❧'];
+  var EMOJI_PRESETS = ['♥', '❤', '❥', '🖤', '❦', '❧'];
 
   var STRIP_GENERAL_CONTROLS = [
     { key: 'sideTextW', label: 'רוחב שוליים לצדדים', min: 10, max: 60, step: 2 },
@@ -1151,12 +1323,24 @@
     }
     return null;
   }
-  function addLayer(type) {
+  function addLayer(type, extra) {
     var design = currentDesign();
-    var layer = type === 'emoji'
-      ? { id: newLayerId(), type: 'emoji', text: '♥', x: 0.5, y: 0.5, size: designTab === 'strip' ? 24 : 3, color: '#2A2418', rotation: 0 }
-      : { id: newLayerId(), type: 'text', text: 'טקסט חדש', x: 0.5, y: 0.5, size: designTab === 'strip' ? 28 : 3.5, color: '#2A2418', font: 'sans', rotation: 0, weight: '' };
-    design.layers.push(layer);
+    var layer;
+    if (type === 'emoji') {
+      layer = { id: newLayerId(), type: 'emoji', text: '♥', x: 0.5, y: 0.5, size: designTab === 'strip' ? 24 : 3, color: '#2A2418', rotation: 0 };
+    } else if (type === 'image') {
+      layer = { id: newLayerId(), type: 'image', src: extra.src, x: 0.5, y: 0.5, size: 60, rotation: 0 };
+    } else {
+      layer = { id: newLayerId(), type: 'text', text: 'טקסט חדש', x: 0.5, y: 0.5, size: designTab === 'strip' ? 28 : 3.5, color: '#2A2418', font: 'sans', rotation: 0, weight: '' };
+    }
+    if (type === 'image') {
+      // A logo/background image goes to the very back, so text and other
+      // elements added afterwards naturally draw on top of it.
+      design.layers.unshift(layer);
+      preloadLayerImage(layer.src);
+    } else {
+      design.layers.push(layer);
+    }
     saveDesign(currentDesignKey(), design);
     selectedLayerId = layer.id;
     renderDesignControls();
@@ -1198,6 +1382,27 @@
     layer.x = 0.5;
     saveDesign(currentDesignKey(), design);
     renderDesignControls();
+    renderDesignPreview();
+  }
+  // Layers draw in array order (later = on top) - these move a layer to
+  // the very front or back of that order, e.g. to put a logo ON TOP of
+  // the text instead of always behind it.
+  function bringLayerToFront(id) {
+    var design = currentDesign();
+    var idx = design.layers.findIndex(function (l) { return l.id === id; });
+    if (idx < 0 || idx === design.layers.length - 1) return;
+    var layer = design.layers.splice(idx, 1)[0];
+    design.layers.push(layer);
+    saveDesign(currentDesignKey(), design);
+    renderDesignPreview();
+  }
+  function sendLayerToBack(id) {
+    var design = currentDesign();
+    var idx = design.layers.findIndex(function (l) { return l.id === id; });
+    if (idx <= 0) return;
+    var layer = design.layers.splice(idx, 1)[0];
+    design.layers.unshift(layer);
+    saveDesign(currentDesignKey(), design);
     renderDesignPreview();
   }
 
@@ -1257,6 +1462,7 @@
   }
 
   function layerChipLabel(layer) {
+    if (layer.type === 'image') return '🖼 לוגו';
     if (layer.type === 'emoji') return layer.text || '♥';
     if (layer.auto === 'title') return '📝 כותרת';
     if (layer.auto === 'date') return '📅 תאריך';
@@ -1273,6 +1479,35 @@
     actions.appendChild(mkActionBtn('⧉ שכפול', function () { duplicateLayer(layer.id); }));
     actions.appendChild(mkActionBtn('🗑 מחיקה', function () { deleteLayer(layer.id); }, true));
     wrap.appendChild(actions);
+
+    var orderActions = document.createElement('div');
+    orderActions.className = 'layer-actions';
+    orderActions.appendChild(mkActionBtn('⬆ להביא קדימה (מעל הכל)', function () { bringLayerToFront(layer.id); }));
+    orderActions.appendChild(mkActionBtn('⬇ לשלוח אחורה (מתחת לכל)', function () { sendLayerToBack(layer.id); }));
+    wrap.appendChild(orderActions);
+
+    // Precise nudging, for when a drag or pinch is too coarse - small
+    // fixed steps in each direction, independent of the gesture system.
+    var NUDGE_STEP = 0.01;
+    function nudge(dx, dy) {
+      layer.x = Math.min(1, Math.max(0, layer.x + dx));
+      layer.y = Math.min(1, Math.max(0, layer.y + dy));
+      saveDesign(currentDesignKey(), design);
+      renderDesignPreview();
+    }
+    var nudgeWrap = document.createElement('div');
+    nudgeWrap.className = 'layer-nudge';
+    var vRow = document.createElement('div');
+    vRow.className = 'nudge-row';
+    vRow.appendChild(mkActionBtn('▲ למעלה', function () { nudge(0, -NUDGE_STEP); }));
+    vRow.appendChild(mkActionBtn('▼ למטה', function () { nudge(0, NUDGE_STEP); }));
+    var hRow = document.createElement('div');
+    hRow.className = 'nudge-row';
+    hRow.appendChild(mkActionBtn('◄ שמאלה', function () { nudge(-NUDGE_STEP, 0); }));
+    hRow.appendChild(mkActionBtn('► ימינה', function () { nudge(NUDGE_STEP, 0); }));
+    nudgeWrap.appendChild(vRow);
+    nudgeWrap.appendChild(hRow);
+    wrap.appendChild(nudgeWrap);
 
     if (layer.type === 'text' && !layer.auto) {
       var trow = mkRow('תוכן הטקסט');
@@ -1349,19 +1584,26 @@
       wrap.appendChild(frow);
     }
 
-    var crow = mkRow('צבע');
-    var color = document.createElement('input');
-    color.type = 'color';
-    color.value = layer.color;
-    color.addEventListener('input', function () {
-      layer.color = color.value;
-      saveDesign(currentDesignKey(), design);
-      renderDesignPreview();
-    });
-    crow.appendChild(color);
-    wrap.appendChild(crow);
+    if (layer.type !== 'image') {
+      var crow = mkRow('צבע');
+      var color = document.createElement('input');
+      color.type = 'color';
+      color.value = layer.color;
+      color.addEventListener('input', function () {
+        layer.color = color.value;
+        saveDesign(currentDesignKey(), design);
+        renderDesignPreview();
+      });
+      crow.appendChild(color);
+      wrap.appendChild(crow);
+    }
 
-    var sizeRange = designTab === 'strip' ? { min: 8, max: 100, step: 1 } : { min: 1, max: 15, step: 0.2 };
+    // Image layer size is always % of the card's width (so it scales
+    // sensibly with either mode); text/emoji keep their existing scale
+    // (raw px for the strip, % of width for the wide photo).
+    var sizeRange = layer.type === 'image'
+      ? { min: 5, max: 100, step: 1 }
+      : (designTab === 'strip' ? { min: 8, max: 100, step: 1 } : { min: 1, max: 15, step: 0.2 });
     wrap.appendChild(buildLiveRangeRow('גודל', layer.size, sizeRange, function (v) {
       layer.size = v;
       saveDesign(currentDesignKey(), design);
@@ -1384,6 +1626,16 @@
 
     var chipsRow = document.createElement('div');
     chipsRow.className = 'layer-chips';
+    var generalChip = document.createElement('button');
+    generalChip.type = 'button';
+    generalChip.className = 'layer-chip' + (!selectedLayerId ? ' active' : '');
+    generalChip.textContent = '⚙ פריסה כללית';
+    generalChip.addEventListener('click', function () {
+      selectedLayerId = null;
+      renderDesignControls();
+      renderDesignPreview();
+    });
+    chipsRow.appendChild(generalChip);
     design.layers.forEach(function (layer) {
       var chip = document.createElement('button');
       chip.type = 'button';
@@ -1410,8 +1662,29 @@
     addEmoji.className = 'btn btn-ghost';
     addEmoji.textContent = '+ אימוג\'י';
     addEmoji.addEventListener('click', function () { addLayer('emoji'); });
+    var addLogo = document.createElement('button');
+    addLogo.type = 'button';
+    addLogo.className = 'btn btn-ghost';
+    addLogo.textContent = '+ לוגו';
+    var logoInput = document.createElement('input');
+    logoInput.type = 'file';
+    logoInput.accept = 'image/*';
+    logoInput.style.display = 'none';
+    logoInput.addEventListener('change', function () {
+      var file = this.files[0];
+      this.value = '';
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function () {
+        addLayer('image', { src: reader.result });
+      };
+      reader.readAsDataURL(file);
+    });
+    addLogo.addEventListener('click', function () { logoInput.click(); });
     addRow.appendChild(addText);
     addRow.appendChild(addEmoji);
+    addRow.appendChild(addLogo);
+    addRow.appendChild(logoInput);
     container.appendChild(addRow);
 
     var selected = selectedLayerId ? findLayer(design, selectedLayerId) : null;
@@ -1545,7 +1818,9 @@
       var dist = designPointerDistance(pts[0], pts[1]);
       var angle = designPointerAngle(pts[0], pts[1]);
       var scale = designPinch.startDist > 0 ? dist / designPinch.startDist : 1;
-      var sizeRange = designTab === 'strip' ? { min: 8, max: 100 } : { min: 1, max: 15 };
+      var sizeRange = layer.type === 'image'
+        ? { min: 5, max: 100 }
+        : (designTab === 'strip' ? { min: 8, max: 100 } : { min: 1, max: 15 });
       layer.size = Math.min(sizeRange.max, Math.max(sizeRange.min, designPinch.startSize * scale));
       layer.rotation = designPinch.startRotation + (angle - designPinch.startAngle);
       saveDesign(currentDesignKey(), design);

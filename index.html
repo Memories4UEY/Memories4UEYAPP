@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="assets/css/style.css">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Dancing+Script:wght@600&family=Playfair+Display:ital@1&family=Amatic+SC:wght@700&family=Caveat:wght@600&family=Cormorant+Garamond:ital@1&family=Suez+One&family=Frank+Ruhl+Libre:ital,wght@0,500;1,500&family=Bellefair&family=Miriam+Libre:wght@700&family=Secular+One&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Dancing+Script:wght@600&family=Playfair+Display:ital@1&family=Amatic+SC:wght@700&family=Caveat:wght@600&family=Cormorant+Garamond:ital@1&family=Suez+One&family=Frank+Ruhl+Libre:ital,wght@0,500;1,500&family=Bellefair&family=Miriam+Libre:wght@700&family=Secular+One&family=Alex+Brush&family=Allura&family=Parisienne&family=Tangerine:wght@700&family=Pinyon+Script&display=swap">
 <style>
   html, body {
     height: 100%;
@@ -766,6 +766,9 @@
     gap: 10px;
   }
   .layer-actions { display: flex; gap: 6px; }
+  .layer-nudge { display: flex; flex-direction: column; gap: 6px; }
+  .nudge-row { display: flex; gap: 6px; }
+  .nudge-row .layer-action-btn { flex: 1; }
   .layer-action-btn { flex: 1; padding: 8px; font-size: 12px; white-space: nowrap; }
   .btn-danger { border-color: #7a2f2f; color: #e08a8a; }
   .layer-panel .emoji-picker + .design-select { margin-top: 6px; }
@@ -817,6 +820,15 @@
     <div class="settings-mode-row">
       <button type="button" class="btn btn-ghost" id="settings-mode-strip">📸 סטריפ 3</button>
       <button type="button" class="btn btn-ghost" id="settings-mode-wide">🖼 תמונה רחבה</button>
+    </div>
+    <label class="settings-label">רקע לצילום (אופציונלי - מחליף את הרקע האמיתי מאחורי המצטלם)</label>
+    <div class="settings-mode-row">
+      <button type="button" class="btn btn-ghost" id="bg-mode-none">ללא (רגיל)</button>
+      <button type="button" class="btn btn-ghost" id="bg-mode-white">רקע לבן</button>
+    </div>
+    <div class="save-event-row">
+      <input type="color" id="bg-color-input" value="#ffffff">
+      <button type="button" class="btn btn-ghost" id="bg-mode-color">רקע בצבע שבחרתם</button>
     </div>
     <label class="settings-label">ניהול</label>
     <div class="settings-mode-row">
