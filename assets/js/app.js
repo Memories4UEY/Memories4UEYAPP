@@ -268,7 +268,6 @@
       captureMode: captureMode,
       welcomeBg: localStorage.getItem(WELCOME_BG_KEY) || null,
       bgMode: localStorage.getItem(BG_MODE_KEY) || 'none',
-      bgColor: localStorage.getItem(BG_COLOR_KEY) || '#FFFFFF',
       stripDesign: getStripDesign(),
       wideDesign: getWideDesign()
     };
@@ -282,9 +281,7 @@
       localStorage.removeItem(WELCOME_BG_KEY);
     }
     applyWelcomeBg();
-    localStorage.setItem(BG_COLOR_KEY, setup.bgColor || '#FFFFFF');
     setBgMode(setup.bgMode || 'none');
-    $('bg-color-input').value = getBgColor();
     if (setup.stripDesign) saveDesign(STRIP_DESIGN_KEY, setup.stripDesign);
     if (setup.wideDesign) saveDesign(WIDE_DESIGN_KEY, setup.wideDesign);
   }
@@ -623,7 +620,11 @@
     c.height = frame.width;
     var ctx = c.getContext('2d');
     ctx.translate(c.width / 2, c.height / 2);
-    ctx.rotate(Math.PI / 2);
+    // This iPad's front camera hands back a landscape frame that needs a
+    // counter-clockwise turn to stand upright (rotating +90 here was
+    // turning the subject to face the wrong way - reported as coming out
+    // sideways/reversed).
+    ctx.rotate(-Math.PI / 2);
     ctx.drawImage(frame, -frame.width / 2, -frame.height / 2);
     return c;
   }
@@ -790,10 +791,10 @@
   // one feature needs internet the first time. If it fails for any
   // reason (no internet, model error), capture falls back to the
   // original, unmodified photo rather than breaking the flow.
-  var BG_MODE_KEY = 'm4u_bg_mode'; // 'none' | 'white' | 'color'
-  var BG_COLOR_KEY = 'm4u_bg_color';
+  var BG_MODE_KEY = 'm4u_bg_mode'; // 'none' | 'white' | 'black' | 'green'
+  var BG_MODE_COLORS = { white: '#FFFFFF', black: '#000000', green: '#00B140' };
   function getBgMode() { return localStorage.getItem(BG_MODE_KEY) || 'none'; }
-  function getBgColor() { return localStorage.getItem(BG_COLOR_KEY) || '#FFFFFF'; }
+  function getBgColor() { return BG_MODE_COLORS[getBgMode()] || '#FFFFFF'; }
 
   var selfieSegmentation = null;
   var segmentationLoad = null;
@@ -832,6 +833,31 @@
     });
   }
 
+  // The raw segmentation mask is a soft probability gradient, which left
+  // a hazy, semi-transparent halo around the cutout person (reported as
+  // blurry/messy edges). Steepening the mask's contrast pushes "probably
+  // person" pixels to fully opaque and "probably background" pixels to
+  // fully transparent, leaving only a thin transition band - then a very
+  // slight blur on that sharpened mask smooths the now-crisp edge so it
+  // doesn't look jagged/pixelated.
+  function sharpenMask(maskImage, w, h) {
+    var c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    var cx = c.getContext('2d');
+    cx.drawImage(maskImage, 0, 0, w, h);
+    var imgData = cx.getImageData(0, 0, w, h);
+    var d = imgData.data;
+    var contrast = 2.4;
+    for (var i = 0; i < d.length; i += 4) {
+      var v = d[i + 3]; // mask confidence lives in the alpha channel
+      var nv = (v - 128) * contrast + 128;
+      d[i + 3] = nv < 0 ? 0 : (nv > 255 ? 255 : nv);
+    }
+    cx.putImageData(imgData, 0, 0);
+    return c;
+  }
+
   // Cuts the person out of `frame` (using the segmentation mask) and
   // composites them onto a plain backdrop in the chosen color.
   function applyBackgroundReplacement(frame) {
@@ -847,13 +873,15 @@
       var pctx = personCanvas.getContext('2d');
       pctx.drawImage(frame, 0, 0, w, h);
       pctx.globalCompositeOperation = 'destination-in';
-      pctx.drawImage(mask, 0, 0, w, h);
+      pctx.filter = 'blur(1.2px)';
+      pctx.drawImage(sharpenMask(mask, w, h), 0, 0, w, h);
+      pctx.filter = 'none';
 
       var out = document.createElement('canvas');
       out.width = w;
       out.height = h;
       var octx = out.getContext('2d');
-      octx.fillStyle = mode === 'white' ? '#FFFFFF' : getBgColor();
+      octx.fillStyle = getBgColor();
       octx.fillRect(0, 0, w, h);
       octx.drawImage(personCanvas, 0, 0);
       return out;
@@ -867,17 +895,14 @@
     localStorage.setItem(BG_MODE_KEY, mode);
     $('bg-mode-none').classList.toggle('active', mode === 'none');
     $('bg-mode-white').classList.toggle('active', mode === 'white');
-    $('bg-mode-color').classList.toggle('active', mode === 'color');
+    $('bg-mode-black').classList.toggle('active', mode === 'black');
+    $('bg-mode-green').classList.toggle('active', mode === 'green');
     if (mode !== 'none') ensureSegmentation().catch(function () {}); // warm the model up in advance
   }
   $('bg-mode-none').addEventListener('click', function () { setBgMode('none'); });
   $('bg-mode-white').addEventListener('click', function () { setBgMode('white'); });
-  $('bg-mode-color').addEventListener('click', function () { setBgMode('color'); });
-  $('bg-color-input').addEventListener('input', function () {
-    localStorage.setItem(BG_COLOR_KEY, this.value);
-    if (getBgMode() === 'color') setBgMode('color');
-  });
-  $('bg-color-input').value = getBgColor();
+  $('bg-mode-black').addEventListener('click', function () { setBgMode('black'); });
+  $('bg-mode-green').addEventListener('click', function () { setBgMode('green'); });
   setBgMode(getBgMode());
 
   function capture() {
@@ -936,7 +961,6 @@
     $('settings-panel').classList.remove('active');
     openGallery('screen-welcome');
   });
-  $('result-gallery-btn').addEventListener('click', function () { openGallery('screen-result'); });
 
   // ---------- Result screen ----------
   var resultUrl = null;
