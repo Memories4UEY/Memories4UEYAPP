@@ -160,6 +160,19 @@
       });
     });
   }
+  // Overwrites an existing gallery entry's image - used when the guest
+  // manually rotates a wide photo after capture, so the corrected version
+  // (not the original crooked one) is what ends up saved/shared.
+  function dbPut(id, blob, createdAt) {
+    return dbPromise.then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction(STORE, 'readwrite');
+        var req = tx.objectStore(STORE).put({ id: id, blob: blob, createdAt: createdAt });
+        req.onsuccess = function () { resolve(); };
+        req.onerror = function () { reject(req.error); };
+      });
+    });
+  }
   function dbDelete(id) {
     return dbPromise.then(function (db) {
       return new Promise(function (resolve, reject) {
@@ -629,10 +642,45 @@
     return c;
   }
 
+  // Rotates a canvas 90° clockwise.
+  function rotate90(frame) {
+    var c = document.createElement('canvas');
+    c.width = frame.height;
+    c.height = frame.width;
+    var ctx = c.getContext('2d');
+    ctx.translate(c.width / 2, c.height / 2);
+    ctx.rotate(Math.PI / 2);
+    ctx.drawImage(frame, -frame.width / 2, -frame.height / 2);
+    return c;
+  }
+
+  // Automatic orientation detection has proven unreliable across
+  // different capture conditions (this front camera doesn't consistently
+  // report a landscape frame the same way every time) - rather than keep
+  // guessing which fixed rotation is "correct", a wide photo also carries
+  // a manual 90°-at-a-time override the guest/staff can nudge on the
+  // result screen (the ↻ button) until it looks right, on top of
+  // whatever ensurePortrait already guessed.
+  var wideExtraRotation = 0; // 0 | 90 | 180 | 270
+  function applyManualRotation(frame, degrees) {
+    var steps = Math.round(degrees / 90) % 4;
+    for (var i = 0; i < steps; i++) frame = rotate90(frame);
+    return frame;
+  }
+
   // Full photo on a white card with a script event name + date + brand
   // line underneath, matching the printed single-photo cards.
   function composeWide(frame, design, hits) {
-    frame = ensurePortrait(frame);
+    // TEMP DIAGNOSTIC - remove once the wide-photo orientation bug is
+    // confirmed fixed on real hardware. Guessing the camera's raw
+    // orientation blind hasn't worked, so this records the actual raw
+    // frame size the real device handed back, right on the photo itself
+    // - no extra step for whoever reports it, since a photo of the
+    // result screen is already what gets sent when something's wrong.
+    var dbgRawW = frame.width, dbgRawH = frame.height;
+    var dbgAutoRotated = dbgRawW > dbgRawH;
+
+    frame = applyManualRotation(ensurePortrait(frame), wideExtraRotation);
     design = design || getWideDesign();
     var vw = frame.width, vh = frame.height;
     var margin = Math.round(vw * design.marginPct);
@@ -658,6 +706,19 @@
     }
 
     renderLayers(ctx, design, W, H, true, hits);
+
+    // TEMP DIAGNOSTIC label - see note above. Drawn over the top of the
+    // photo itself (not the footer) so it never collides with the
+    // brand/date text underneath.
+    ctx.save();
+    ctx.font = 'bold 20px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(margin, margin, vw, 30);
+    ctx.fillStyle = '#0f0';
+    ctx.fillText('DBG raw ' + dbgRawW + 'x' + dbgRawH + (dbgAutoRotated ? ' auto-rot' : ' as-is') + ' +manual' + wideExtraRotation, margin + 6, margin + 22);
+    ctx.restore();
+
     return canvas;
   }
 
@@ -915,10 +976,12 @@
     if (captureMode === 'wide') {
       indicator.classList.remove('show');
       currentGifBlob = null;
+      wideExtraRotation = 0;
       chain = countdownAndShoot().then(function (frame) {
         return applyBackgroundReplacement(frame);
       }).then(function (frame) {
         lastWideFrame = frame;
+        $('rotate-fab-item').style.display = '';
         return finishCapture(composeWide(frame));
       });
     } else {
@@ -939,6 +1002,7 @@
       chain = nextShot().then(function () {
         indicator.classList.remove('show');
         lastStripFrames = frames;
+        $('rotate-fab-item').style.display = 'none';
         return composeGif(frames, false).then(function (gifBlob) {
           currentGifBlob = gifBlob;
           currentColorGifBlob = gifBlob;
@@ -981,6 +1045,7 @@
       currentColorGifBlob = null;
       bwGifBlobCache = null;
       $('gif-fab-item').style.display = 'none';
+      $('rotate-fab-item').style.display = 'none';
     }
     printCopies = 1;
     $('copies-count').textContent = printCopies;
@@ -995,6 +1060,30 @@
   $('btn-retake').addEventListener('click', function () {
     showScreen('screen-camera');
     startCamera();
+  });
+
+  // Manually nudges a wide photo 90° at a time - the fallback for when
+  // the automatic orientation guess (ensurePortrait) gets it wrong, which
+  // has turned out to happen inconsistently depending on capture
+  // conditions. Rebuilds the card from the original raw frame each time
+  // (not from the already-decorated image), so the text/date/brand stay
+  // sharp and correctly placed no matter how many times it's tapped.
+  $('btn-rotate').addEventListener('click', function () {
+    if (!lastWideFrame) return;
+    wideExtraRotation = (wideExtraRotation + 90) % 360;
+    canvasToBlob(composeWide(lastWideFrame)).then(function (blob) {
+      currentBlob = blob;
+      currentColorBlob = blob;
+      isBw = false;
+      bwBlobCache = null;
+      $('btn-bw').classList.remove('active');
+      if (resultUrl) URL.revokeObjectURL(resultUrl);
+      resultUrl = URL.createObjectURL(blob);
+      $('result-canvas-view').src = resultUrl;
+      if (currentPhotoId != null) {
+        dbPut(currentPhotoId, blob, Date.now());
+      }
+    });
   });
 
   $('btn-delete').addEventListener('click', function () {

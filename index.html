@@ -85,7 +85,7 @@
     text-align: center;
     background-size: cover;
     background-position: center;
-    padding-bottom: calc(48px + env(safe-area-inset-bottom));
+    padding-bottom: calc(24px + env(safe-area-inset-bottom));
   }
   /* A dark scrim behind the bottom of the screen, not just around the
      text - whatever is in the uploaded background photo down there
@@ -147,7 +147,7 @@
     letter-spacing: .02em;
     text-shadow: 0 2px 10px rgba(0,0,0,.9), 0 1px 3px #000;
   }
-  #welcome-start-btn { font-size: 18px; padding: 18px 32px; box-shadow: 0 4px 20px rgba(0,0,0,.5); }
+  #welcome-start-btn { font-size: 16px; box-shadow: 0 4px 20px rgba(0,0,0,.5); }
 
   /* ---- Event settings panel (staff only) ---- */
   #settings-panel {
@@ -414,6 +414,11 @@
 
   /* ---- Result screen ---- */
   #screen-result { align-items: center; }
+  /* #screen-result centers its children, which used to be fine for the
+     topbar since it had 3 items spanning its own width - but with only
+     the back button left, that centered the whole (now content-sized)
+     topbar box instead of pinning the button to the screen's edge. */
+  #screen-result .topbar { align-self: stretch; }
   .result-photo-wrap {
     position: relative;
     flex: 1;
@@ -956,6 +961,10 @@
         <button class="fab-btn" id="btn-gif" aria-label="GIF">🎞️</button>
         <span class="fab-label">GIF</span>
       </div>
+      <div class="fab-item" id="rotate-fab-item" style="display:none">
+        <button class="fab-btn" id="btn-rotate" aria-label="סיבוב התמונה">↻</button>
+        <span class="fab-label">סיבוב</span>
+      </div>
     </div>
     <div class="result-fab-col-right">
       <div class="fab-item">
@@ -985,7 +994,7 @@
 <!-- ============ GALLERY SCREEN ============ -->
 <div id="screen-gallery" class="screen">
   <div class="topbar">
-    <button class="icon-btn" id="gallery-back-btn" aria-label="חזרה למצלמה">›</button>
+    <button class="icon-btn" id="gallery-back-btn" aria-label="חזרה למצלמה">‹</button>
     <span class="brand">כל התמונות</span>
     <button class="icon-btn" id="export-all-btn" aria-label="ייצוא כל התמונות" title="ייצוא כל התמונות">📦</button>
   </div>
@@ -1004,7 +1013,7 @@
 <!-- ============ DESIGN EDITOR ============ -->
 <div id="screen-design" class="screen">
   <div class="topbar">
-    <button class="icon-btn" id="design-back-btn" aria-label="חזרה">›</button>
+    <button class="icon-btn" id="design-back-btn" aria-label="חזרה">‹</button>
     <span class="brand">עורך עיצוב</span>
     <button class="icon-btn" id="design-reset-btn" aria-label="איפוס" title="איפוס לברירת מחדל">↺</button>
   </div>
