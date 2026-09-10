@@ -532,6 +532,7 @@
     padding: 10px;
   }
   .gallery-item {
+    position: relative;
     aspect-ratio: 2/3;
     border-radius: 8px;
     overflow: hidden;
@@ -539,11 +540,32 @@
     cursor: pointer;
     background: var(--color-surface);
   }
+  .gallery-item.selected { border: 3px solid var(--color-gold); }
   .gallery-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .gallery-check {
+    position: absolute;
+    top: 6px; left: 6px;
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background: rgba(12,12,14,.75);
+    border: 1.5px solid var(--color-gold);
+    color: var(--color-gold);
+    font-size: 15px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
   .gallery-empty {
     flex: 1; display: flex; align-items: center; justify-content: center;
     color: var(--color-text-muted); font-size: 15px; padding: 24px; text-align: center;
   }
+  .gallery-toolbar {
+    display: flex;
+    gap: 8px;
+    padding: 10px 14px 0;
+  }
+  .gallery-toolbar .btn { flex: 1; padding: 9px; font-size: 13px; }
 
   /* ---- Print layout (fallback path only - used when the print-bridge
      isn't reachable and the OS print dialog is used directly; paper size
@@ -968,6 +990,15 @@
     <button class="icon-btn" id="gallery-back-btn" aria-label="חזרה למצלמה">›</button>
     <span class="brand">כל התמונות</span>
     <button class="icon-btn" id="export-all-btn" aria-label="ייצוא כל התמונות" title="ייצוא כל התמונות">📦</button>
+  </div>
+  <div class="gallery-toolbar">
+    <button class="btn btn-ghost" id="gallery-select-btn">☑ בחירה</button>
+    <button class="btn btn-ghost" id="gallery-delete-all-btn">🗑 מחק הכל</button>
+  </div>
+  <div class="gallery-toolbar" id="gallery-selection-toolbar" style="display:none">
+    <button class="btn btn-ghost" id="gallery-share-selected-btn">📤 שתף (0)</button>
+    <button class="btn btn-ghost" id="gallery-delete-selected-btn">🗑 מחק (0)</button>
+    <button class="btn btn-ghost" id="gallery-cancel-select-btn">ביטול</button>
   </div>
   <div id="gallery-grid" class="gallery-grid"></div>
 </div>

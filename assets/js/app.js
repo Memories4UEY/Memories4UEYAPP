@@ -809,7 +809,11 @@
               return 'https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation@0.1.1675465747/' + file;
             }
           });
-          selfieSegmentation.setOptions({ modelSelection: 1 });
+          // Model 0 ("general") is slower but meant for a wider frame with
+          // more of the body visible - a better fit for a photo booth shot
+          // than model 1 ("landscape"), which is tuned for tight video-call
+          // close-ups and was giving weaker results on full-body photos.
+          selfieSegmentation.setOptions({ modelSelection: 0 });
           resolve();
         } catch (e) { reject(e); }
       };
@@ -1195,37 +1199,115 @@
   // Remembers which screen opened the gallery (guest result screen, or
   // staff settings panel) so the back button returns to the right place.
   var galleryReturnScreen = 'screen-camera';
+  var gallerySelectMode = false;
+  var gallerySelectedIds = {};
+
   function openGallery(returnTo) {
     if (returnTo) galleryReturnScreen = returnTo;
+    gallerySelectMode = false;
+    gallerySelectedIds = {};
     showScreen('screen-gallery');
+    renderGalleryGrid();
+  }
+
+  // dbAll() is async and renderGalleryGrid() gets called on every
+  // selection click - without this guard, an older call's dbAll() can
+  // resolve after a newer one already redrew the grid and append a
+  // second, stale, duplicate set of items on top of it.
+  var galleryRenderGen = 0;
+  function renderGalleryGrid() {
+    var myGen = ++galleryRenderGen;
     var grid = $('gallery-grid');
     grid.innerHTML = '';
+    $('gallery-selection-toolbar').style.display = gallerySelectMode ? 'flex' : 'none';
+    $('gallery-select-btn').textContent = gallerySelectMode ? '✕ בטל בחירה' : '☑ בחירה';
     dbAll().then(function (rows) {
+      if (myGen !== galleryRenderGen) return;
       if (!rows.length) {
-        grid.innerHTML = '';
         var empty = document.createElement('div');
         empty.className = 'gallery-empty';
         empty.textContent = 'עדיין אין תמונות מהאירוע הזה';
         grid.appendChild(empty);
         return;
       }
+      var selectedCount = Object.keys(gallerySelectedIds).length;
+      $('gallery-share-selected-btn').textContent = '📤 שתף (' + selectedCount + ')';
+      $('gallery-delete-selected-btn').textContent = '🗑 מחק (' + selectedCount + ')';
       rows.forEach(function (row) {
+        var isSelected = !!gallerySelectedIds[row.id];
         var item = document.createElement('div');
-        item.className = 'gallery-item';
+        item.className = 'gallery-item' + (gallerySelectMode && isSelected ? ' selected' : '');
         var img = document.createElement('img');
         img.src = URL.createObjectURL(row.blob);
         item.appendChild(img);
+        if (gallerySelectMode) {
+          var check = document.createElement('div');
+          check.className = 'gallery-check';
+          check.textContent = isSelected ? '✓' : '';
+          item.appendChild(check);
+        }
         item.addEventListener('click', function () {
-          currentPhotoId = row.id;
-          openResult(row.blob, false);
+          if (gallerySelectMode) {
+            if (gallerySelectedIds[row.id]) {
+              delete gallerySelectedIds[row.id];
+            } else {
+              gallerySelectedIds[row.id] = row.blob;
+            }
+            renderGalleryGrid();
+          } else {
+            currentPhotoId = row.id;
+            openResult(row.blob, false);
+          }
         });
         grid.appendChild(item);
       });
     });
   }
+
   $('gallery-back-btn').addEventListener('click', function () {
     showScreen(galleryReturnScreen);
     if (galleryReturnScreen === 'screen-camera') startCamera();
+  });
+  $('gallery-select-btn').addEventListener('click', function () {
+    gallerySelectMode = !gallerySelectMode;
+    gallerySelectedIds = {};
+    renderGalleryGrid();
+  });
+  $('gallery-cancel-select-btn').addEventListener('click', function () {
+    gallerySelectMode = false;
+    gallerySelectedIds = {};
+    renderGalleryGrid();
+  });
+  $('gallery-delete-all-btn').addEventListener('click', function () {
+    dbAll().then(function (rows) {
+      if (!rows.length) { toast('אין תמונות למחוק'); return; }
+      if (!confirm('למחוק את כל ' + rows.length + ' התמונות? לא ניתן לבטל את זה.')) return;
+      Promise.all(rows.map(function (row) { return dbDelete(row.id); })).then(function () {
+        toast('כל התמונות נמחקו');
+        renderGalleryGrid();
+      });
+    });
+  });
+  $('gallery-delete-selected-btn').addEventListener('click', function () {
+    var ids = Object.keys(gallerySelectedIds);
+    if (!ids.length) { toast('לא סימנתם תמונות'); return; }
+    if (!confirm('למחוק ' + ids.length + ' תמונות שסומנו? לא ניתן לבטל את זה.')) return;
+    Promise.all(ids.map(function (id) { return dbDelete(Number(id)); })).then(function () {
+      gallerySelectedIds = {};
+      toast('התמונות שסומנו נמחקו');
+      renderGalleryGrid();
+    });
+  });
+  $('gallery-share-selected-btn').addEventListener('click', function () {
+    var blobs = Object.keys(gallerySelectedIds).map(function (id, i) {
+      return new File([gallerySelectedIds[id]], 'memories4u-' + (i + 1) + '.jpg', { type: 'image/jpeg' });
+    });
+    if (!blobs.length) { toast('לא סימנתם תמונות'); return; }
+    if (navigator.canShare && navigator.canShare({ files: blobs })) {
+      navigator.share({ files: blobs, title: 'Memories4U' }).catch(function () {});
+    } else {
+      toast('השיתוף המרובה לא נתמך במכשיר הזה - נסו לסמן פחות תמונות');
+    }
   });
 
   // ---------- Design editor ----------
@@ -1503,8 +1585,8 @@
     vRow.appendChild(mkActionBtn('▼ למטה', function () { nudge(0, NUDGE_STEP); }));
     var hRow = document.createElement('div');
     hRow.className = 'nudge-row';
-    hRow.appendChild(mkActionBtn('◄ שמאלה', function () { nudge(-NUDGE_STEP, 0); }));
     hRow.appendChild(mkActionBtn('► ימינה', function () { nudge(NUDGE_STEP, 0); }));
+    hRow.appendChild(mkActionBtn('◄ שמאלה', function () { nudge(-NUDGE_STEP, 0); }));
     nudgeWrap.appendChild(vRow);
     nudgeWrap.appendChild(hRow);
     wrap.appendChild(nudgeWrap);
@@ -1687,24 +1769,22 @@
     addRow.appendChild(logoInput);
     container.appendChild(addRow);
 
+    // Strictly one or the other - a selected layer shows only its own
+    // controls, general layout shows only when nothing is selected, so
+    // nothing from one bleeds into the other.
     var selected = selectedLayerId ? findLayer(design, selectedLayerId) : null;
     if (selected) {
       container.appendChild(buildLayerPanel(design, selected));
     } else {
-      var hint = document.createElement('p');
-      hint.className = 'design-hint';
-      hint.textContent = 'געו באלמנט בתצוגה (או בחרו למעלה) כדי לערוך אותו';
-      container.appendChild(hint);
+      var generalTitle = document.createElement('h3');
+      generalTitle.className = 'design-section-title';
+      generalTitle.textContent = 'פריסה כללית';
+      container.appendChild(generalTitle);
+      var generalControls = designTab === 'strip' ? STRIP_GENERAL_CONTROLS : WIDE_GENERAL_CONTROLS;
+      generalControls.forEach(function (c) {
+        container.appendChild(buildRangeRow(design, c));
+      });
     }
-
-    var generalTitle = document.createElement('h3');
-    generalTitle.className = 'design-section-title';
-    generalTitle.textContent = 'פריסה כללית';
-    container.appendChild(generalTitle);
-    var generalControls = designTab === 'strip' ? STRIP_GENERAL_CONTROLS : WIDE_GENERAL_CONTROLS;
-    generalControls.forEach(function (c) {
-      container.appendChild(buildRangeRow(design, c));
-    });
   }
 
   function switchDesignTab(tab) {
