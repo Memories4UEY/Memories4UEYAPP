@@ -706,11 +706,25 @@
       ctx.fillStyle = layer.color;
       ctx.textAlign = 'center';
       var metrics = ctx.measureText(text);
+      // Most of the loaded webfonts only ship a single weight (see the
+      // Google Fonts <link> in index.html), so asking the browser for a
+      // real bold face is a no-op for them - it silently keeps using the
+      // one weight that's loaded. A faux-bold stroke pass thickens the
+      // glyphs on the canvas itself instead, so the B toggle looks the
+      // same regardless of which font style is selected.
+      var isBold = layer.type === 'text' && !!layer.weight;
+      if (isBold) {
+        ctx.strokeStyle = layer.color;
+        ctx.lineWidth = Math.max(1, sizePx * 0.035);
+        ctx.lineJoin = 'round';
+      }
       if (layer.rotation) {
         ctx.translate(px, py);
         ctx.rotate(layer.rotation * Math.PI / 180);
+        if (isBold) ctx.strokeText(text, 0, 0);
         ctx.fillText(text, 0, 0);
       } else {
+        if (isBold) ctx.strokeText(text, px, py);
         ctx.fillText(text, px, py);
       }
       ctx.restore();
@@ -1925,8 +1939,13 @@
     // Image layer size is always % of the card's width (so it scales
     // sensibly with either mode); text/emoji keep their existing scale
     // (raw px for the strip, % of width for the wide photo).
+    // min is 1, not 5 - the built-in Instagram-icon layer defaults to 2.2
+    // in wide-photo mode, and a slider min above a layer's actual value
+    // clamps the displayed thumb to that min without touching the real
+    // (smaller) value, so the next drag jumps from the true value straight
+    // to wherever the thumb visually starts instead of moving smoothly.
     var sizeRange = layer.type === 'image'
-      ? { min: 5, max: 100, step: 1 }
+      ? { min: 1, max: 100, step: 0.5 }
       : (designTab === 'strip' ? { min: 8, max: 100, step: 1 } : { min: 1, max: 15, step: 0.2 });
     wrap.appendChild(buildLiveRangeRow('גודל', layer.size, sizeRange, function (v) {
       layer.size = v;
@@ -2141,7 +2160,7 @@
       var angle = designPointerAngle(pts[0], pts[1]);
       var scale = designPinch.startDist > 0 ? dist / designPinch.startDist : 1;
       var sizeRange = layer.type === 'image'
-        ? { min: 5, max: 100 }
+        ? { min: 1, max: 100 }
         : (designTab === 'strip' ? { min: 8, max: 100 } : { min: 1, max: 15 });
       layer.size = Math.min(sizeRange.max, Math.max(sizeRange.min, designPinch.startSize * scale));
       layer.rotation = designPinch.startRotation + (angle - designPinch.startAngle);
