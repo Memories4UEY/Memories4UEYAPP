@@ -553,7 +553,7 @@
     ]
   };
   var DEFAULT_WIDE_DESIGN = {
-    marginPct: 0.045, footerPct: 0.2, cornerRadius: 0,
+    marginTopPct: 0.045, marginSidePct: 0.045, footerPct: 0.2, cornerRadius: 0,
     layers: [
       { id: 'title', type: 'text', auto: 'title', x: 0.5, y: 0.855, size: 9, color: '#2A2418', font: 'script1', rotation: 0, weight: '' },
       { id: 'heart', type: 'emoji', text: '♥', x: 0.5, y: 0.898, size: 3.2, color: '#2A2418', rotation: 0 },
@@ -635,6 +635,16 @@
         merged[k] = (d && typeof d === 'object') ? JSON.parse(JSON.stringify(d)) : d;
       }
     });
+    // The wide-photo design used to have one "marginPct" for both the top
+    // and the side margins - split into marginTopPct/marginSidePct so
+    // they can be tuned independently. A design saved before the split
+    // has the old key but not the new ones; seed both from it so an
+    // already-tuned margin doesn't silently jump back to the default.
+    if (isWide && saved.marginPct != null && saved.marginTopPct == null && saved.marginSidePct == null) {
+      merged.marginTopPct = saved.marginPct;
+      merged.marginSidePct = saved.marginPct;
+      saveDesign(key, merged);
+    }
     if (!saved.layers && (saved.titleX != null || saved.heartX != null || saved.brandX != null || saved.emoji != null)) {
       merged.layers = migrateLegacyLayers(saved, isWide);
       saveDesign(key, merged);
@@ -806,10 +816,15 @@
     frame = cropToPortrait(frame);
     design = design || getWideDesign();
     var vw = frame.width, vh = frame.height;
-    var margin = Math.round(vw * design.marginPct);
+    // Both still scale off the frame's width, exactly like the single
+    // shared "margin" this replaced - only the percentage each one reads
+    // is now independent, so top and sides can be tuned apart without
+    // changing how either one is measured.
+    var marginTop = Math.round(vw * design.marginTopPct);
+    var marginSide = Math.round(vw * design.marginSidePct);
     var footerH = Math.round(vh * design.footerPct);
-    var W = vw + margin * 2;
-    var H = vh + margin + footerH;
+    var W = vw + marginSide * 2;
+    var H = vh + marginTop + footerH;
 
     var canvas = document.createElement('canvas');
     canvas.width = W;
@@ -820,12 +835,12 @@
     ctx.fillRect(0, 0, W, H);
     if (design.cornerRadius > 0) {
       ctx.save();
-      roundRectPath(ctx, margin, margin, vw, vh, design.cornerRadius);
+      roundRectPath(ctx, marginSide, marginTop, vw, vh, design.cornerRadius);
       ctx.clip();
-      ctx.drawImage(frame, margin, margin, vw, vh);
+      ctx.drawImage(frame, marginSide, marginTop, vw, vh);
       ctx.restore();
     } else {
-      ctx.drawImage(frame, margin, margin, vw, vh);
+      ctx.drawImage(frame, marginSide, marginTop, vw, vh);
     }
 
     renderLayers(ctx, design, W, H, true, hits);
@@ -1586,7 +1601,8 @@
     { key: 'cornerRadius', label: 'עיגול פינות', min: 0, max: 30, step: 1 }
   ];
   var WIDE_GENERAL_CONTROLS = [
-    { key: 'marginPct', label: 'שוליים', min: 0, max: 15, step: 0.5, scale: 100 },
+    { key: 'marginTopPct', label: 'שוליים למעלה', min: 0, max: 20, step: 0.2, scale: 100 },
+    { key: 'marginSidePct', label: 'שוליים לצדדים', min: 0, max: 20, step: 0.2, scale: 100 },
     { key: 'footerPct', label: 'גובה אזור הטקסט', min: 5, max: 35, step: 1, scale: 100 },
     { key: 'cornerRadius', label: 'עיגול פינות התמונה', min: 0, max: 60, step: 2 }
   ];
@@ -2239,6 +2255,14 @@
         designDragging = null;
         designDragPointerId = null;
         designCanvas.style.cursor = 'grab';
+        // The size/rotation/etc. sliders below were built from the design
+        // object as it was when the panel was last rendered (drag start,
+        // or earlier) - a drag writes the new position straight to
+        // localStorage via its own separate copy of that object without
+        // touching the panel's. Left alone, the next slider touched would
+        // save ITS (stale) copy back over the drag's new position,
+        // silently reverting it. Same fix already applied to pinch below.
+        renderDesignControls();
       }
       if (designPinch && designPinch.pointerIds.indexOf(String(e.pointerId)) !== -1) {
         designPinch = null;
