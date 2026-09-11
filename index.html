@@ -375,6 +375,8 @@
     cursor: pointer;
   }
   .icon-btn-spacer { width: 40px; height: 40px; flex-shrink: 0; }
+  .topbar-actions { display: flex; align-items: center; gap: 8px; }
+  .topbar-actions .icon-btn:disabled { opacity: .35; cursor: default; }
   .topbar .camera-last-photo-btn { width: 64px; height: 64px; padding: 0; overflow: hidden; }
   .camera-last-photo-btn img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
   .shot-thumbs {
@@ -1181,7 +1183,11 @@
   <div class="topbar">
     <button class="icon-btn" id="design-back-btn" aria-label="חזרה">‹</button>
     <span class="brand">עורך עיצוב</span>
-    <button class="icon-btn" id="design-reset-btn" aria-label="איפוס" title="איפוס לברירת מחדל">↺</button>
+    <div class="topbar-actions">
+      <button class="icon-btn" id="design-undo-btn" aria-label="בטל פעולה אחרונה" title="בטל את הפעולה האחרונה">↩</button>
+      <button class="icon-btn" id="design-save-event-btn" aria-label="שמירה לאירוע" title="שמירת העיצוב הנוכחי לאירוע הפעיל">💾</button>
+      <button class="icon-btn" id="design-reset-btn" aria-label="איפוס" title="איפוס לברירת מחדל">↺</button>
+    </div>
   </div>
   <div class="design-tabs">
     <button type="button" id="design-tab-strip">סטריפ 3</button>

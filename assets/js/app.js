@@ -420,6 +420,28 @@
     toast('האירוע נשמר');
   });
 
+  // Design-editor changes auto-save to the general/live design right
+  // away, but a saved event only remembers whatever it looked like at
+  // the moment it was last (re)saved by name - so editing an already-
+  // loaded event's design here didn't stick the next time that event was
+  // reloaded. This re-saves under the currently active event's own name,
+  // reusing the exact same "update if the name already exists" logic as
+  // the settings-panel save button above.
+  function saveCurrentSetupToActiveEvent() {
+    var name = getActiveEventName();
+    if (!name) {
+      toast('אין אירוע פעיל - שמרו קודם אירוע בשם דרך ⚙ הגדרות');
+      return;
+    }
+    var list = getSavedEvents();
+    var setup = snapshotCurrentSetup();
+    var existingIdx = -1;
+    for (var i = 0; i < list.length; i++) { if (list[i].name === name) { existingIdx = i; break; } }
+    if (existingIdx >= 0) { list[existingIdx].setup = setup; } else { list.push({ name: name, setup: setup }); }
+    setSavedEvents(list);
+    toast('העיצוב נשמר לאירוע "' + name + '"');
+  }
+
   // ---------- Camera ----------
   var video = $('video');
   var stream = null;
@@ -624,8 +646,30 @@
     }
     return merged;
   }
+  // One undo step is pushed per saveDesign call, keyed by design (strip
+  // vs wide) - every single edit in the design editor (drag, nudge, font,
+  // color, slider, text keystroke, layer add/remove...) funnels through
+  // this one function, so hooking it here gives undo everywhere for free
+  // without touching each individual control's handler. In-memory only
+  // (not persisted) - undo doesn't need to survive a page reload, and
+  // keeping it out of localStorage avoids bloating the site's small quota
+  // with old snapshots of designs that can embed a full uploaded logo.
+  var DESIGN_UNDO_LIMIT = 40;
+  var designUndoStacks = {};
   function saveDesign(key, design) {
+    var prev = localStorage.getItem(key);
+    if (prev !== null) {
+      var stack = designUndoStacks[key] || (designUndoStacks[key] = []);
+      stack.push(prev);
+      if (stack.length > DESIGN_UNDO_LIMIT) stack.shift();
+    }
     localStorage.setItem(key, JSON.stringify(design));
+  }
+  function undoDesign(key) {
+    var stack = designUndoStacks[key];
+    if (!stack || !stack.length) return false;
+    localStorage.setItem(key, stack.pop());
+    return true;
   }
   function getStripDesign() { return loadDesign(STRIP_DESIGN_KEY, DEFAULT_STRIP_DESIGN, false); }
   function getWideDesign() { return loadDesign(WIDE_DESIGN_KEY, DEFAULT_WIDE_DESIGN, true); }
@@ -2074,6 +2118,14 @@
     renderDesignPreview();
     toast('אופס לברירת המחדל');
   });
+  $('design-undo-btn').addEventListener('click', function () {
+    if (!undoDesign(currentDesignKey())) { toast('אין פעולה לבטל'); return; }
+    selectedLayerId = null;
+    renderDesignControls();
+    renderDesignPreview();
+    toast('הפעולה האחרונה בוטלה');
+  });
+  $('design-save-event-btn').addEventListener('click', saveCurrentSetupToActiveEvent);
 
   function designPointFromEvent(e) {
     var rect = designCanvas.getBoundingClientRect();
