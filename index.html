@@ -166,6 +166,24 @@
     font-size: 24px;
     cursor: pointer;
   }
+  #ready-back-btn {
+    position: absolute;
+    top: calc(14px + env(safe-area-inset-top));
+    right: 14px;
+    z-index: 6;
+    opacity: .8;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: var(--color-surface-2);
+    border: 1px solid var(--color-border);
+    color: var(--color-gold);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    cursor: pointer;
+  }
   /* No solid card behind the text - on some background photos it showed
      up as an ugly visible gray box. Legibility comes from the scrim
      above plus text-shadow. */
@@ -512,10 +530,13 @@
   #shutter-btn {
     width: 80px; height: 80px;
     border-radius: 50%;
-    background: var(--color-gold);
+    background: #fff;
     border: 5px solid var(--color-gold-soft);
     cursor: pointer;
+    padding: 0;
+    overflow: hidden;
   }
+  #shutter-btn img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
   #shutter-btn:active { transform: scale(.94); }
   #shutter-btn[disabled] { opacity: .5; }
   .cam-error {
@@ -956,6 +977,7 @@
 
 <!-- ============ READY SCREEN (branded splash right before the camera) ============ -->
 <div id="screen-ready" class="screen">
+  <button class="icon-btn" id="ready-back-btn" aria-label="חזרה" title="חזרה">‹</button>
   <button class="btn" id="ready-start-btn">
     <img id="ready-start-btn-logo" src="assets/img/logo-ig.jpg" alt="">
     <span>התחילו לצלם</span>
@@ -1080,7 +1102,9 @@
     <div id="cam-error" class="cam-error" style="display:none"></div>
   </div>
   <div class="cam-controls">
-    <button id="shutter-btn" aria-label="צלם"></button>
+    <button id="shutter-btn" aria-label="צלם">
+      <img src="assets/img/logo-ig.jpg" alt="">
+    </button>
   </div>
 </div>
 

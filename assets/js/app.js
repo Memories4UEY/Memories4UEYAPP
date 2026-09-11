@@ -118,7 +118,7 @@
       if (hex === PASSWORD_HASH) {
         closeAdminModal();
         stopCamera();
-        showScreen('screen-welcome');
+        showScreen('screen-ready');
       } else {
         $('admin-password-error').textContent = 'סיסמה שגויה';
         $('admin-password-input').value = '';
@@ -257,6 +257,9 @@
   $('ready-start-btn').addEventListener('click', function () {
     showScreen('screen-camera');
     startCamera();
+  });
+  $('ready-back-btn').addEventListener('click', function () {
+    showScreen('screen-welcome');
   });
   $('welcome-settings-btn').addEventListener('click', function () {
     $('settings-panel').classList.add('active');
