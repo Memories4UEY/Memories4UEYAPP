@@ -132,6 +132,16 @@
     if (e.key === 'Enter') submitAdminModal();
   });
 
+  // Asks the browser to mark this site's storage as "persistent" - i.e.
+  // exempt from the automatic cleanup iOS/Safari can otherwise do to
+  // storage for a site that hasn't been opened in a while. Not a
+  // guarantee (the OS can still refuse, or a person can still clear it
+  // by hand), so this doesn't replace actually exporting/backing up
+  // photos - it just lowers the odds of silent, automatic data loss.
+  if (navigator.storage && navigator.storage.persist) {
+    navigator.storage.persist().catch(function () {});
+  }
+
   // ---------- IndexedDB gallery ----------
   var DB_NAME = 'm4u-photobooth';
   var STORE = 'photos';
@@ -143,11 +153,15 @@
     req.onsuccess = function () { resolve(req.result); };
     req.onerror = function () { reject(req.error); };
   });
+  // Every photo is tagged with whichever saved event is currently active
+  // (see ACTIVE_EVENT_KEY below), so each event's gallery only ever shows
+  // its own photos - loading a different saved event switches the whole
+  // gallery to that event's own set, nothing mixes together.
   function dbAdd(blob) {
     return dbPromise.then(function (db) {
       return new Promise(function (resolve, reject) {
         var tx = db.transaction(STORE, 'readwrite');
-        var req = tx.objectStore(STORE).add({ blob: blob, createdAt: Date.now() });
+        var req = tx.objectStore(STORE).add({ blob: blob, createdAt: Date.now(), eventName: getActiveEventName() });
         req.onsuccess = function () { resolve(req.result); };
         req.onerror = function () { reject(req.error); };
       });
@@ -161,6 +175,16 @@
         req.onsuccess = function () { resolve(req.result.sort(function (a, b) { return b.createdAt - a.createdAt; })); };
         req.onerror = function () { reject(req.error); };
       });
+    });
+  }
+  // Only this event's photos - photos saved before this feature existed
+  // have no eventName, which reads back as '' (the same "no event
+  // loaded" default), so they stay visible together as long as no named
+  // event has been loaded since.
+  function dbAllForActiveEvent() {
+    return dbAll().then(function (rows) {
+      var active = getActiveEventName();
+      return rows.filter(function (row) { return (row.eventName || '') === active; });
     });
   }
   function dbDelete(id) {
@@ -237,6 +261,7 @@
   $('welcome-settings-btn').addEventListener('click', function () {
     $('settings-panel').classList.add('active');
     renderSavedEventsList();
+    setActiveEventName(getActiveEventName());
   });
   $('settings-close-btn').addEventListener('click', function () {
     $('settings-panel').classList.remove('active');
@@ -258,6 +283,17 @@
     toast('הרקע אופס');
   });
 
+  // Which saved event new photos get tagged with (see dbAdd above) - ''
+  // means no named event has been loaded/saved yet, the general bucket
+  // used before this feature existed.
+  var ACTIVE_EVENT_KEY = 'm4u_active_event';
+  function getActiveEventName() { return localStorage.getItem(ACTIVE_EVENT_KEY) || ''; }
+  function setActiveEventName(name) {
+    localStorage.setItem(ACTIVE_EVENT_KEY, name || '');
+    var label = $('active-event-label');
+    if (label) label.textContent = name ? ('אירוע פעיל כרגע: ' + name) : 'אין אירוע שמור פעיל (אלבום כללי)';
+  }
+
   // ---------- Saved events (prepare several events in advance, switch
   // between them) - snapshots event title/date, capture mode, welcome
   // background and both designs under a name, loadable any time. ----------
@@ -278,7 +314,7 @@
       wideDesign: getWideDesign()
     };
   }
-  function applySavedSetup(setup) {
+  function applySavedSetup(setup, name) {
     localStorage.setItem(EVENT_KEY, JSON.stringify(setup.eventInfo || { title: '', date: '' }));
     setCaptureMode(setup.captureMode || 'strip');
     if (setup.welcomeBg) {
@@ -290,6 +326,7 @@
     setBgMode(setup.bgMode || 'none');
     if (setup.stripDesign) saveDesign(STRIP_DESIGN_KEY, setup.stripDesign);
     if (setup.wideDesign) saveDesign(WIDE_DESIGN_KEY, setup.wideDesign);
+    setActiveEventName(name);
   }
   function renderSavedEventsList() {
     var list = getSavedEvents();
@@ -313,7 +350,8 @@
       loadBtn.className = 'btn btn-ghost';
       loadBtn.textContent = 'טעינה';
       loadBtn.addEventListener('click', function () {
-        applySavedSetup(entry.setup);
+        applySavedSetup(entry.setup, entry.name);
+        renderGalleryGrid();
         toast('האירוע "' + entry.name + '" נטען');
       });
       var delBtn = document.createElement('button');
@@ -339,6 +377,7 @@
     for (var i = 0; i < list.length; i++) { if (list[i].name === name) { existingIdx = i; break; } }
     if (existingIdx >= 0) { list[existingIdx].setup = setup; } else { list.push({ name: name, setup: setup }); }
     setSavedEvents(list);
+    setActiveEventName(name);
     $('save-event-name-input').value = '';
     renderSavedEventsList();
     toast('האירוע נשמר');
@@ -1330,7 +1369,7 @@
     grid.innerHTML = '';
     $('gallery-selection-toolbar').style.display = gallerySelectMode ? 'flex' : 'none';
     $('gallery-select-btn').textContent = gallerySelectMode ? '✕ בטל בחירה' : '☑ בחירה';
-    dbAll().then(function (rows) {
+    dbAllForActiveEvent().then(function (rows) {
       if (myGen !== galleryRenderGen) return;
       if (!rows.length) {
         var empty = document.createElement('div');
@@ -1388,9 +1427,9 @@
     renderGalleryGrid();
   });
   $('gallery-delete-all-btn').addEventListener('click', function () {
-    dbAll().then(function (rows) {
+    dbAllForActiveEvent().then(function (rows) {
       if (!rows.length) { toast('אין תמונות למחוק'); return; }
-      if (!confirm('למחוק את כל ' + rows.length + ' התמונות? לא ניתן לבטל את זה.')) return;
+      if (!confirm('למחוק את כל ' + rows.length + ' התמונות של האירוע הזה? לא ניתן לבטל את זה.')) return;
       Promise.all(rows.map(function (row) { return dbDelete(row.id); })).then(function () {
         toast('כל התמונות נמחקו');
         renderGalleryGrid();
@@ -2072,8 +2111,8 @@
   });
 
   // ---------- Export all photos as one zip (to send to the event owner) ----------
-  $('export-all-btn').addEventListener('click', function () {
-    dbAll().then(function (rows) {
+  function exportActiveEventZip(onDone) {
+    dbAllForActiveEvent().then(function (rows) {
       if (!rows.length) {
         toast('אין תמונות לייצוא');
         return;
@@ -2096,7 +2135,20 @@
           a.click();
           toast('הקובץ הורד למכשיר');
         }
+        if (onDone) onDone();
       });
+    });
+  }
+  $('export-all-btn').addEventListener('click', function () { exportActiveEventZip(); });
+  // Manual "event finished" trigger - there's no way for the app to know
+  // on its own when an event actually ends, so this puts a simple,
+  // one-tap backup reminder directly in the staff's hands instead of
+  // relying on the iPad's local storage to keep the photos forever.
+  $('event-finished-btn').addEventListener('click', function () {
+    exportActiveEventZip(function () {
+      setTimeout(function () {
+        alert('הקובץ נוצר - עכשיו חשוב לשמור אותו במקום קבוע (גוגל דרייב, מייל לעצמך וכו׳), לא להסתמך רק על האייפד.');
+      }, 400);
     });
   });
 

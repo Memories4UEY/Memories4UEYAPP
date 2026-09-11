@@ -992,12 +992,16 @@
       <button type="button" class="btn btn-ghost" id="print-settings-btn">🖨 כתובת הדפסה</button>
       <button type="button" class="btn btn-ghost" id="open-gallery-btn">🖼 גלריה</button>
     </div>
-    <label class="settings-label">אירועים שמורים (שם, תאריך, רקע ועיצוב)</label>
+    <label class="settings-label">אירועים שמורים (שם, תאריך, רקע ועיצוב) - לכל אירוע שמור יש אלבום תמונות נפרד משלו</label>
+    <p id="active-event-label" class="design-hint"></p>
     <div class="save-event-row">
       <input type="text" id="save-event-name-input" placeholder="שם לשמירה, למשל דויד ושושנה">
       <button class="btn btn-ghost" id="save-event-btn">💾 שמירה</button>
     </div>
     <div id="saved-events-list"></div>
+    <label class="settings-label">בסיום אירוע</label>
+    <button type="button" class="btn btn-ghost" id="event-finished-btn">📦 סיימתי את האירוע - גיבוי עכשיו</button>
+    <p class="design-hint">התמונות שמורות רק על האייפד הזה - מומלץ ללחוץ כאן בסוף כל אירוע ולשמור את הקובץ שיורד במקום קבוע (גוגל דרייב, מייל וכו׳).</p>
     <button class="btn" id="settings-close-btn">סגירה</button>
   </div>
 </div>
