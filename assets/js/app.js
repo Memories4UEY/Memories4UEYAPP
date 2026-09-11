@@ -184,16 +184,17 @@
       });
     });
   }
-  // Only this event's photos - photos saved before this feature existed
+  // Only one event's photos - photos saved before this feature existed
   // have no eventName, which reads back as '' (the same "no event
   // loaded" default), so they stay visible together as long as no named
-  // event has been loaded since.
-  function dbAllForActiveEvent() {
+  // event has claimed that bucket.
+  function dbAllForEvent(eventName) {
     return dbAll().then(function (rows) {
-      var active = getActiveEventName();
-      return rows.filter(function (row) { return (row.eventName || '') === active; });
+      var name = eventName || '';
+      return rows.filter(function (row) { return (row.eventName || '') === name; });
     });
   }
+  function dbAllForActiveEvent() { return dbAllForEvent(getActiveEventName()); }
   function dbDelete(id) {
     return dbPromise.then(function (db) {
       return new Promise(function (resolve, reject) {
@@ -361,6 +362,18 @@
         renderGalleryGrid();
         toast('האירוע "' + entry.name + '" נטען');
       });
+      var finishBtn = document.createElement('button');
+      finishBtn.type = 'button';
+      finishBtn.className = 'btn btn-ghost';
+      finishBtn.textContent = '📦';
+      finishBtn.title = 'סיימתי את האירוע - גיבוי התמונות שלו';
+      finishBtn.addEventListener('click', function () {
+        exportEventZip(entry.name, function () {
+          setTimeout(function () {
+            alert('הקובץ של "' + entry.name + '" נוצר - עכשיו חשוב לשמור אותו במקום קבוע (גוגל דרייב, מייל לעצמך וכו׳), לא להסתמך רק על האייפד.');
+          }, 400);
+        });
+      });
       var delBtn = document.createElement('button');
       delBtn.type = 'button';
       delBtn.className = 'btn btn-ghost';
@@ -371,6 +384,7 @@
       });
       row.appendChild(name);
       row.appendChild(loadBtn);
+      row.appendChild(finishBtn);
       row.appendChild(delBtn);
       container.appendChild(row);
     });
@@ -1066,6 +1080,15 @@
 
   $('shutter-btn').addEventListener('click', capture);
   $('open-gallery-btn').addEventListener('click', function () {
+    $('settings-panel').classList.remove('active');
+    openGallery('screen-welcome');
+  });
+  // Photos captured while no named saved event was active (the default
+  // bucket, including everything shot before per-event albums existed)
+  // aren't reachable through any saved-event row - this is the only way
+  // back to them.
+  $('unassigned-event-btn').addEventListener('click', function () {
+    setActiveEventName('');
     $('settings-panel').classList.remove('active');
     openGallery('screen-welcome');
   });
@@ -2117,9 +2140,10 @@
     });
   });
 
-  // ---------- Export all photos as one zip (to send to the event owner) ----------
-  function exportActiveEventZip(onDone) {
-    dbAllForActiveEvent().then(function (rows) {
+  // ---------- Export a specific event's photos as one zip (to send to
+  // the event owner) - eventName defaults to whatever's active. ----------
+  function exportEventZip(eventName, onDone) {
+    dbAllForEvent(eventName).then(function (rows) {
       if (!rows.length) {
         toast('אין תמונות לייצוא');
         return;
@@ -2146,18 +2170,7 @@
       });
     });
   }
-  $('export-all-btn').addEventListener('click', function () { exportActiveEventZip(); });
-  // Manual "event finished" trigger - there's no way for the app to know
-  // on its own when an event actually ends, so this puts a simple,
-  // one-tap backup reminder directly in the staff's hands instead of
-  // relying on the iPad's local storage to keep the photos forever.
-  $('event-finished-btn').addEventListener('click', function () {
-    exportActiveEventZip(function () {
-      setTimeout(function () {
-        alert('הקובץ נוצר - עכשיו חשוב לשמור אותו במקום קבוע (גוגל דרייב, מייל לעצמך וכו׳), לא להסתמך רק על האייפד.');
-      }, 400);
-    });
-  });
+  $('export-all-btn').addEventListener('click', function () { exportEventZip(getActiveEventName()); });
 
   // ---------- Start ----------
   // Camera only starts when the guest actually enters the camera screen
