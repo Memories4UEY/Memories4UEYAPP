@@ -228,6 +228,9 @@
   applyWelcomeBg();
 
   $('welcome-start-btn').addEventListener('click', function () {
+    showScreen('screen-ready');
+  });
+  $('ready-start-btn').addEventListener('click', function () {
     showScreen('screen-camera');
     startCamera();
   });
@@ -1065,6 +1068,7 @@
     stopCamera();
     showScreen('screen-result');
   });
+  $('result-gallery-btn').addEventListener('click', function () { openGallery('screen-result'); });
 
   $('btn-delete').addEventListener('click', function () {
     if (currentPhotoId == null) return;
