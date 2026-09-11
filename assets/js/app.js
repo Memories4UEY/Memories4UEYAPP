@@ -99,10 +99,14 @@
     });
   });
 
-  // ---------- Camera screen "back to management" (password-gated) ----------
-  // The camera screen has no staff controls at all - this is the only
-  // way off it, and it re-checks the password so a guest holding the
-  // iPad can't wander into settings/design/gallery.
+  // ---------- Password gate on the way into real settings ----------
+  // The camera screen's own back button only steps back to the branded
+  // "ready" splash (screen-ready) - that page has no staff controls on
+  // it either (just the start button), so it needs no password. The
+  // password is only re-checked at the ONE real boundary: going from
+  // screen-ready into actual settings (event info, print, gallery,
+  // design editor) - that's the only gate a guest holding the iPad
+  // could otherwise use to wander into staff controls.
   function openAdminModal() {
     $('admin-password-input').value = '';
     $('admin-password-error').textContent = '';
@@ -117,15 +121,18 @@
     sha256Hex(val).then(function (hex) {
       if (hex === PASSWORD_HASH) {
         closeAdminModal();
-        stopCamera();
-        showScreen('screen-ready');
+        showScreen('screen-welcome');
       } else {
         $('admin-password-error').textContent = 'סיסמה שגויה';
         $('admin-password-input').value = '';
       }
     });
   }
-  $('camera-admin-btn').addEventListener('click', openAdminModal);
+  $('camera-admin-btn').addEventListener('click', function () {
+    stopCamera();
+    showScreen('screen-ready');
+  });
+  $('ready-back-btn').addEventListener('click', openAdminModal);
   $('admin-modal-cancel').addEventListener('click', closeAdminModal);
   $('admin-modal-confirm').addEventListener('click', submitAdminModal);
   $('admin-password-input').addEventListener('keydown', function (e) {
@@ -257,9 +264,6 @@
   $('ready-start-btn').addEventListener('click', function () {
     showScreen('screen-camera');
     startCamera();
-  });
-  $('ready-back-btn').addEventListener('click', function () {
-    showScreen('screen-welcome');
   });
   $('welcome-settings-btn').addEventListener('click', function () {
     $('settings-panel').classList.add('active');
