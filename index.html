@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="assets/css/style.css">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Dancing+Script:wght@600&family=Playfair+Display:ital@1&family=Amatic+SC:wght@700&family=Caveat:wght@600&family=Cormorant+Garamond:ital@1&family=Suez+One&family=Frank+Ruhl+Libre:ital,wght@0,500;1,500&family=Bellefair&family=Miriam+Libre:wght@700&family=Secular+One&family=Alex+Brush&family=Allura&family=Parisienne&family=Tangerine:wght@700&family=Pinyon+Script&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Dancing+Script:wght@600&family=Playfair+Display:ital@1&family=Amatic+SC:wght@700&family=Caveat:wght@600&family=Cormorant+Garamond:ital@1&family=Suez+One&family=Frank+Ruhl+Libre:ital,wght@0,500;1,500&family=Bellefair&family=Miriam+Libre:wght@700&family=Secular+One&family=Alex+Brush&family=Allura&family=Parisienne&family=Tangerine:wght@700&family=Pinyon+Script&family=Mrs+Saint+Delafield&family=Sacramento&family=Yellowtail&display=swap">
 <style>
   html, body {
     height: 100%;
@@ -83,6 +83,7 @@
     align-items: center;
     justify-content: flex-end;
     text-align: center;
+    background-image: url('assets/img/logo-welcome-bg.png');
     background-size: cover;
     background-position: center;
     padding-bottom: calc(12px + env(safe-area-inset-bottom));
@@ -132,13 +133,15 @@
     width: calc(100% - 48px);
     max-width: 360px;
   }
-  #welcome-content .badge {
-    width: 72px; height: 72px; border-radius: 50%;
-    filter: drop-shadow(0 2px 10px rgba(0,0,0,.6));
-  }
-  /* When a custom background photo is set, it already carries the full
-     branding - skip the extra logo so it doesn't sit on top of it. */
-  #screen-welcome.has-bg #welcome-content .badge { display: none; }
+  /* The default background is already the full business logo (see
+     #screen-welcome), and an uploaded custom photo replaces it via an
+     inline style that overrides this - either way the small round badge
+     next to the title would just be a redundant second logo. */
+  #welcome-content .badge { display: none; }
+  /* The logo background speaks for itself by default; the title text is
+     only useful as a fallback caption over a custom (non-logo) photo. */
+  #welcome-content h1 { display: none; }
+  #screen-welcome.has-bg #welcome-content h1 { display: block; }
   #welcome-content h1 {
     font-family: var(--font-heading);
     color: var(--color-gold);
@@ -307,6 +310,31 @@
     cursor: pointer;
   }
   .icon-btn-spacer { width: 40px; height: 40px; flex-shrink: 0; }
+  .camera-last-photo-btn { padding: 0; overflow: hidden; }
+  .camera-last-photo-btn img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+  .shot-thumbs {
+    position: absolute;
+    top: 44px; left: 0; right: 0;
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    z-index: 3;
+    pointer-events: none;
+  }
+  .shot-thumb {
+    width: 52px; height: 52px;
+    border-radius: 10px;
+    border: 2px solid rgba(255,255,255,.5);
+    background: rgba(0,0,0,.35) center/cover no-repeat;
+    display: flex; align-items: center; justify-content: center;
+    color: rgba(255,255,255,.7);
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 15px;
+    text-shadow: 0 2px 6px rgba(0,0,0,.6);
+  }
+  .shot-thumb.filled { border-color: var(--color-gold); }
+  .shot-thumb.filled span { display: none; }
 
   /* ---- Camera screen ---- */
   #screen-camera { background: #000; }
@@ -331,13 +359,42 @@
   #countdown {
     position: absolute; inset: 0;
     display: flex; align-items: center; justify-content: center;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity .15s ease;
+  }
+  .countdown-ring {
+    position: absolute;
+    width: 160px; height: 160px;
+    transform: rotate(-90deg);
+  }
+  .countdown-ring-track {
+    fill: none;
+    stroke: rgba(255,255,255,.25);
+    stroke-width: 6;
+  }
+  #countdown-ring-progress {
+    fill: none;
+    stroke: var(--color-gold);
+    stroke-width: 6;
+    stroke-linecap: round;
+    stroke-dasharray: 326.7;
+    stroke-dashoffset: 326.7;
+  }
+  #countdown-ring-progress.running {
+    animation: countdown-ring-fill .8s linear forwards;
+  }
+  @keyframes countdown-ring-fill {
+    from { stroke-dashoffset: 0; }
+    to { stroke-dashoffset: 326.7; }
+  }
+  #countdown-number {
+    position: relative;
     font-family: var(--font-heading);
-    font-size: 140px;
+    font-size: 72px;
     font-weight: 800;
     color: #fff;
     text-shadow: 0 4px 24px rgba(0,0,0,.6);
-    pointer-events: none;
-    opacity: 0;
   }
   #shot-indicator {
     position: absolute;
@@ -832,7 +889,10 @@
   <div id="welcome-content">
     <img class="badge" src="assets/img/logo-ig.jpg" alt="Memories4U">
     <h1>עמדת הצילום של Memories4U</h1>
-    <button class="btn" id="welcome-start-btn">📸 התחילו לצלם</button>
+    <button class="btn" id="welcome-start-btn">
+      <img id="welcome-start-btn-logo" src="assets/img/logo-ig.jpg" alt="">
+      <span>התחילו לצלם</span>
+    </button>
   </div>
 </div>
 
@@ -926,13 +986,26 @@
   <div class="topbar">
     <button class="icon-btn" id="camera-admin-btn" aria-label="ניהול" title="חזרה לניהול (דורש סיסמה)">‹</button>
     <span class="brand">Memories4U</span>
-    <span class="icon-btn-spacer" aria-hidden="true"></span>
+    <button class="icon-btn camera-last-photo-btn" id="camera-last-photo-btn" aria-label="התמונה האחרונה שלי" title="חזרה לתמונה האחרונה שלי" style="display:none">
+      <img id="camera-last-photo-thumb" alt="">
+    </button>
   </div>
   <div class="cam-wrap">
     <video id="video" playsinline autoplay muted></video>
     <div id="shot-indicator"></div>
+    <div id="shot-thumbs" class="shot-thumbs" style="display:none">
+      <div class="shot-thumb" id="shot-thumb-0"><span>1</span></div>
+      <div class="shot-thumb" id="shot-thumb-1"><span>2</span></div>
+      <div class="shot-thumb" id="shot-thumb-2"><span>3</span></div>
+    </div>
     <div id="flash"></div>
-    <div id="countdown"></div>
+    <div id="countdown">
+      <svg class="countdown-ring" viewBox="0 0 120 120">
+        <circle class="countdown-ring-track" cx="60" cy="60" r="52"></circle>
+        <circle id="countdown-ring-progress" cx="60" cy="60" r="52"></circle>
+      </svg>
+      <span id="countdown-number"></span>
+    </div>
     <div class="cam-hint">לחצו על הכפתור כדי לצלם</div>
     <div id="cam-error" class="cam-error" style="display:none"></div>
   </div>

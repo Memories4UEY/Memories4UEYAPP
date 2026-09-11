@@ -215,14 +215,26 @@ section { padding-block: var(--space-8); }
 .btn .icon { width: 20px; height: 20px; flex-shrink: 0; }
 
 #welcome-start-btn {
-  width: 118px;
-  height: 118px;
+  width: 150px;
+  height: 150px;
   border-radius: 50%;
   flex-direction: column;
   white-space: normal;
   text-align: center;
   line-height: 1.2;
   padding: 10px;
+  gap: 2px;
+  background: #fff;
+}
+#welcome-start-btn-logo {
+  width: 76px;
+  height: 76px;
+  object-fit: contain;
+}
+#welcome-start-btn span {
+  font-size: 13px;
+  font-weight: 700;
+  color: #17140b;
 }
 
 .btn-primary {

@@ -30,7 +30,10 @@
     englishAllura: { label: 'אנגלי - כתב יד זורם', family: '"Allura", cursive' },
     englishParisienne: { label: 'אנגלי - פריזאי', family: '"Parisienne", cursive' },
     englishTangerine: { label: 'אנגלי - עדין וקלאסי', family: '"Tangerine", cursive' },
-    englishPinyon: { label: 'אנגלי - חתונה קלאסית', family: '"Pinyon Script", cursive' }
+    englishPinyon: { label: 'אנגלי - חתונה קלאסית', family: '"Pinyon Script", cursive' },
+    englishDelafield: { label: 'אנגלי - כתב יד מקצועי', family: '"Mrs Saint Delafield", cursive' },
+    englishSacramento: { label: 'אנגלי - כתב יד דק וזורם', family: '"Sacramento", cursive' },
+    englishYellowtail: { label: 'אנגלי - Brush עבה', family: '"Yellowtail", cursive' }
   };
   // Note: several of the Latin script fonts above (Great Vibes, Dancing
   // Script, Playfair Display, Amatic SC, Caveat, Cormorant Garamond, and
@@ -443,7 +446,9 @@
       { id: 'title', type: 'text', auto: 'title', x: 0.5, y: 0.911, size: 52, color: '#2A2418', font: 'script1', rotation: 0, weight: '' },
       { id: 'heart', type: 'emoji', text: '♥', x: 0.5, y: 0.936, size: 20, color: '#2A2418', rotation: 0 },
       { id: 'date', type: 'text', auto: 'date', x: 0.5, y: 0.962, size: 24, color: '#2A2418', font: 'sans', rotation: 0, weight: '600' },
-      { id: 'brand', type: 'text', text: '@MEMORIES4U   055-9696120', x: 0.5, y: 0.978, size: 15, color: '#2A2418', font: 'sans', rotation: 0, weight: '600' }
+      { id: 'brand-ig-icon', type: 'image', src: 'assets/img/instagram-icon.png', x: 0.37, y: 0.966, size: 6, rotation: 0 },
+      { id: 'brand-handle', type: 'text', text: '#MEMORIES4U', x: 0.63, y: 0.966, size: 15, color: '#2A2418', font: 'sans', rotation: 0, weight: '600' },
+      { id: 'brand-phone', type: 'text', text: BRAND_PHONE, x: 0.5, y: 0.983, size: 15, color: '#2A2418', font: 'sans', rotation: 0, weight: '600' }
     ]
   };
   var DEFAULT_WIDE_DESIGN = {
@@ -452,7 +457,9 @@
       { id: 'title', type: 'text', auto: 'title', x: 0.5, y: 0.855, size: 9, color: '#2A2418', font: 'script1', rotation: 0, weight: '' },
       { id: 'heart', type: 'emoji', text: '♥', x: 0.5, y: 0.898, size: 3.2, color: '#2A2418', rotation: 0 },
       { id: 'date', type: 'text', auto: 'date', x: 0.5, y: 0.940, size: 3.8, color: '#2A2418', font: 'sans', rotation: 0, weight: '600' },
-      { id: 'brand', type: 'text', text: '@memories4u   055-9696120', x: 0.5, y: 0.983, size: 2.6, color: '#6B6559', font: 'sans', rotation: 0, weight: '600' }
+      { id: 'brand-ig-icon', type: 'image', src: 'assets/img/instagram-icon.png', x: 0.40, y: 0.965, size: 2.2, rotation: 0 },
+      { id: 'brand-handle', type: 'text', text: '#MEMORIES4U', x: 0.61, y: 0.965, size: 2.6, color: '#6B6559', font: 'sans', rotation: 0, weight: '600' },
+      { id: 'brand-phone', type: 'text', text: BRAND_PHONE, x: 0.5, y: 0.983, size: 2.6, color: '#6B6559', font: 'sans', rotation: 0, weight: '600' }
     ]
   };
 
@@ -491,6 +498,28 @@
     ];
   }
 
+  // A design saved before the brand line was split into an Instagram
+  // icon + handle + phone number (previously one combined text layer)
+  // still has the old single 'brand' layer - split it the same way a
+  // fresh design already is, once, so existing saved designs pick up
+  // the new look without the staff having to reset all their other
+  // customizations just for this.
+  function migrateBrandLayer(layers, isWide) {
+    var idx = -1;
+    for (var i = 0; i < layers.length; i++) { if (layers[i].id === 'brand') { idx = i; break; } }
+    if (idx === -1) return layers;
+    var old = layers[idx];
+    var x = old.x != null ? old.x : 0.5;
+    var y = old.y != null ? old.y : (isWide ? 0.983 : 0.978);
+    var spread = isWide ? 0.11 : 0.13;
+    var iconLayer = { id: 'brand-ig-icon', type: 'image', src: 'assets/img/instagram-icon.png', x: x - spread / 2, y: y - (isWide ? 0.018 : 0.016), size: isWide ? 2.2 : 6, rotation: 0 };
+    var handleLayer = { id: 'brand-handle', type: 'text', text: '#MEMORIES4U', x: x + spread / 2, y: y - (isWide ? 0.018 : 0.016), size: old.size, color: old.color, font: old.font, rotation: 0, weight: old.weight || '600' };
+    var phoneLayer = { id: 'brand-phone', type: 'text', text: BRAND_PHONE, x: x, y: y, size: old.size, color: old.color, font: old.font, rotation: 0, weight: old.weight || '600' };
+    var next = layers.slice();
+    next.splice(idx, 1, iconLayer, handleLayer, phoneLayer);
+    return next;
+  }
+
   function loadDesign(key, defaults, isWide) {
     var saved = {};
     try { saved = JSON.parse(localStorage.getItem(key)) || {}; } catch (e) {}
@@ -507,6 +536,11 @@
     });
     if (!saved.layers && (saved.titleX != null || saved.heartX != null || saved.brandX != null || saved.emoji != null)) {
       merged.layers = migrateLegacyLayers(saved, isWide);
+      saveDesign(key, merged);
+    }
+    var migratedBrand = migrateBrandLayer(merged.layers, isWide);
+    if (migratedBrand !== merged.layers) {
+      merged.layers = migratedBrand;
       saveDesign(key, merged);
     }
     return merged;
@@ -755,15 +789,25 @@
     return new Promise(function (resolve) {
       var steps = ['3', '2', '1'];
       var el = $('countdown');
+      var numberEl = $('countdown-number');
+      var ringEl = $('countdown-ring-progress');
       var i = 0;
       function step() {
         if (i < steps.length) {
-          el.textContent = steps[i];
+          numberEl.textContent = steps[i];
           el.style.opacity = '1';
+          // Restart the ring-fill animation on every step - removing the
+          // class and forcing a reflow (getBBox) before re-adding it is
+          // needed for an SVG animation to replay from scratch, since
+          // just re-adding the same class is a no-op to the browser.
+          ringEl.classList.remove('running');
+          void ringEl.getBBox();
+          ringEl.classList.add('running');
           i++;
           setTimeout(step, 800);
         } else {
           el.style.opacity = '0';
+          ringEl.classList.remove('running');
           flashOnce();
           resolve(rawFrame());
         }
@@ -905,6 +949,14 @@
   $('bg-mode-green').addEventListener('click', function () { setBgMode('green'); });
   setBgMode(getBgMode());
 
+  function resetShotThumbs() {
+    for (var i = 0; i < 3; i++) {
+      var el = $('shot-thumb-' + i);
+      el.classList.remove('filled');
+      el.style.backgroundImage = '';
+    }
+  }
+
   function capture() {
     if (countingDown) return;
     countingDown = true;
@@ -924,6 +976,8 @@
     } else {
       var frames = [];
       var shotCount = 3;
+      resetShotThumbs();
+      $('shot-thumbs').style.display = '';
       function nextShot() {
         indicator.textContent = 'תמונה ' + (frames.length + 1) + ' מתוך ' + shotCount;
         indicator.classList.add('show');
@@ -931,6 +985,9 @@
           return applyBackgroundReplacement(frame);
         }).then(function (frame) {
           frames.push(frame);
+          var thumb = $('shot-thumb-' + (frames.length - 1));
+          thumb.style.backgroundImage = 'url(' + frame.toDataURL('image/jpeg', 0.6) + ')';
+          thumb.classList.add('filled');
           if (frames.length < shotCount) {
             return new Promise(function (r) { setTimeout(r, 900); }).then(nextShot);
           }
@@ -938,6 +995,7 @@
       }
       chain = nextShot().then(function () {
         indicator.classList.remove('show');
+        $('shot-thumbs').style.display = 'none';
         lastStripFrames = frames;
         return composeGif(frames, false).then(function (gifBlob) {
           currentGifBlob = gifBlob;
@@ -981,6 +1039,12 @@
       currentColorGifBlob = null;
       bwGifBlobCache = null;
       $('gif-fab-item').style.display = 'none';
+    } else {
+      // A quick way back to a guest's own just-taken photo (to reprint or
+      // reshare) if they wander back to the camera screen without
+      // meaning to - separate from the full staff-only gallery.
+      $('camera-last-photo-thumb').src = resultUrl;
+      $('camera-last-photo-btn').style.display = '';
     }
     printCopies = 1;
     $('copies-count').textContent = printCopies;
@@ -995,6 +1059,11 @@
   $('btn-retake').addEventListener('click', function () {
     showScreen('screen-camera');
     startCamera();
+  });
+  $('camera-last-photo-btn').addEventListener('click', function () {
+    if (!resultUrl) return;
+    stopCamera();
+    showScreen('screen-result');
   });
 
   $('btn-delete').addEventListener('click', function () {
