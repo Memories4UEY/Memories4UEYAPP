@@ -1764,7 +1764,10 @@
 
     // Precise nudging, for when a drag or pinch is too coarse - small
     // fixed steps in each direction, independent of the gesture system.
-    var NUDGE_STEP = 0.01;
+    // Kept small (a quarter of the old 0.01 step) so a single press lands
+    // close to the exact spot instead of overshooting it - holding the
+    // button still crosses the canvas quickly via the repeat timer below.
+    var NUDGE_STEP = 0.0025;
     function nudge(dx, dy) {
       layer.x = Math.min(1, Math.max(0, layer.x + dx));
       layer.y = Math.min(1, Math.max(0, layer.y + dy));
@@ -1886,6 +1889,23 @@
       });
       frow.appendChild(select);
       wrap.appendChild(frow);
+
+      var brow = mkRow('עובי הכתב');
+      var boldBtn = document.createElement('button');
+      boldBtn.type = 'button';
+      boldBtn.className = 'btn btn-ghost bold-toggle-btn';
+      boldBtn.textContent = 'B';
+      var isBold = layer.weight === 'bold';
+      boldBtn.setAttribute('aria-pressed', isBold ? 'true' : 'false');
+      boldBtn.title = isBold ? 'בטל הדגשה' : 'הפוך למודגש (בולד)';
+      boldBtn.addEventListener('click', function () {
+        layer.weight = layer.weight === 'bold' ? '' : 'bold';
+        saveDesign(currentDesignKey(), design);
+        renderDesignControls();
+        renderDesignPreview();
+      });
+      brow.appendChild(boldBtn);
+      wrap.appendChild(brow);
     }
 
     if (layer.type !== 'image') {
