@@ -1035,6 +1035,7 @@
     if (resultUrl) URL.revokeObjectURL(resultUrl);
     resultUrl = URL.createObjectURL(blob);
     $('result-canvas-view').src = resultUrl;
+    $('result-gallery-thumb').src = resultUrl;
     $('btn-delete').style.display = fromCapture ? 'none' : 'block';
     if (!fromCapture) {
       // Viewing an old gallery photo - no freshly-made GIF goes with it.
@@ -1148,6 +1149,7 @@
       if (resultUrl) URL.revokeObjectURL(resultUrl);
       resultUrl = URL.createObjectURL(blob);
       $('result-canvas-view').src = resultUrl;
+      $('result-gallery-thumb').src = resultUrl;
       btn.classList.toggle('active', isBw);
       btn.disabled = false;
     });
