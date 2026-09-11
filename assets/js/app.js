@@ -362,6 +362,21 @@
         renderGalleryGrid();
         toast('האירוע "' + entry.name + '" נטען');
       });
+      var copyBtn = document.createElement('button');
+      copyBtn.type = 'button';
+      copyBtn.className = 'btn btn-ghost';
+      copyBtn.textContent = '📋';
+      copyBtn.title = 'שכפול הגדרות האירוע הזה (עיצוב, רקע, מצב צילום) לאירוע חדש - בלי לשייך תמונות אליו עדיין';
+      copyBtn.addEventListener('click', function () {
+        // Copies the design/background/capture-mode settings only - does
+        // NOT switch the active event (so nothing gets photo-tagged to
+        // the source event by mistake). Staff just edits the name/date
+        // and taps "שמירה" under a new name to finish setting up the copy.
+        applySavedSetup(entry.setup, getActiveEventName());
+        $('save-event-name-input').value = entry.name + ' - עותק';
+        $('save-event-name-input').focus();
+        toast('ההגדרות של "' + entry.name + '" הועתקו - עדכני שם/תאריך ולחצי שמירה');
+      });
       var finishBtn = document.createElement('button');
       finishBtn.type = 'button';
       finishBtn.className = 'btn btn-ghost';
@@ -384,6 +399,7 @@
       });
       row.appendChild(name);
       row.appendChild(loadBtn);
+      row.appendChild(copyBtn);
       row.appendChild(finishBtn);
       row.appendChild(delBtn);
       container.appendChild(row);
