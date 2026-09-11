@@ -970,6 +970,7 @@
     if (captureMode === 'wide') {
       indicator.classList.remove('show');
       currentGifBlob = null;
+      $('gif-fab-item').style.display = 'none';
       chain = countdownAndShoot().then(function (frame) {
         return applyBackgroundReplacement(frame);
       }).then(function (frame) {
@@ -1036,7 +1037,10 @@
     resultUrl = URL.createObjectURL(blob);
     $('result-canvas-view').src = resultUrl;
     $('result-gallery-thumb').src = resultUrl;
-    $('btn-delete').style.display = fromCapture ? 'none' : 'block';
+    // Deleting is an admin-only action - even when a guest taps into an
+    // individual photo from the (now guest-accessible) full gallery,
+    // never show it there, only when staff reached the gallery via ⚙.
+    $('btn-delete').style.display = (fromCapture || galleryReturnScreen === 'screen-result') ? 'none' : 'block';
     if (!fromCapture) {
       // Viewing an old gallery photo - no freshly-made GIF goes with it.
       currentGifBlob = null;
@@ -1305,6 +1309,12 @@
     if (returnTo) galleryReturnScreen = returnTo;
     gallerySelectMode = false;
     gallerySelectedIds = {};
+    // A guest can reach the gallery straight from their own result screen
+    // (no password) - management actions (select/delete-all/export-all)
+    // stay admin-only, reached only via ⚙ settings, never for a guest.
+    var isGuestGallery = galleryReturnScreen === 'screen-result';
+    $('gallery-admin-toolbar').style.display = isGuestGallery ? 'none' : '';
+    $('export-all-btn').style.display = isGuestGallery ? 'none' : '';
     showScreen('screen-gallery');
     renderGalleryGrid();
   }
@@ -1676,16 +1686,44 @@
       saveDesign(currentDesignKey(), design);
       renderDesignPreview();
     }
+    // Press-and-hold repeat: one immediate step on press, then (after a
+    // short delay, like OS key-repeat) it keeps moving on its own until
+    // released - instead of needing a separate tap per small step.
+    function mkHoldNudgeBtn(text, dx, dy) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'btn btn-ghost layer-action-btn';
+      b.textContent = text;
+      var holdTimer = null, repeatTimer = null;
+      function stop() {
+        clearTimeout(holdTimer);
+        clearInterval(repeatTimer);
+        holdTimer = null;
+        repeatTimer = null;
+      }
+      b.addEventListener('pointerdown', function (e) {
+        e.preventDefault();
+        try { b.setPointerCapture(e.pointerId); } catch (err) {}
+        nudge(dx, dy);
+        holdTimer = setTimeout(function () {
+          repeatTimer = setInterval(function () { nudge(dx, dy); }, 60);
+        }, 350);
+      });
+      b.addEventListener('pointerup', stop);
+      b.addEventListener('pointercancel', stop);
+      b.addEventListener('pointerleave', stop);
+      return b;
+    }
     var nudgeWrap = document.createElement('div');
     nudgeWrap.className = 'layer-nudge';
     var vRow = document.createElement('div');
     vRow.className = 'nudge-row';
-    vRow.appendChild(mkActionBtn('▲ למעלה', function () { nudge(0, -NUDGE_STEP); }));
-    vRow.appendChild(mkActionBtn('▼ למטה', function () { nudge(0, NUDGE_STEP); }));
+    vRow.appendChild(mkHoldNudgeBtn('▲ למעלה', 0, -NUDGE_STEP));
+    vRow.appendChild(mkHoldNudgeBtn('▼ למטה', 0, NUDGE_STEP));
     var hRow = document.createElement('div');
     hRow.className = 'nudge-row';
-    hRow.appendChild(mkActionBtn('► ימינה', function () { nudge(NUDGE_STEP, 0); }));
-    hRow.appendChild(mkActionBtn('◄ שמאלה', function () { nudge(-NUDGE_STEP, 0); }));
+    hRow.appendChild(mkHoldNudgeBtn('► ימינה', NUDGE_STEP, 0));
+    hRow.appendChild(mkHoldNudgeBtn('◄ שמאלה', -NUDGE_STEP, 0));
     nudgeWrap.appendChild(vRow);
     nudgeWrap.appendChild(hRow);
     wrap.appendChild(nudgeWrap);
