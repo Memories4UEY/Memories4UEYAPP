@@ -228,28 +228,47 @@
   // Uses a normal on-screen modal rather than window.prompt() - a
   // blocking native dialog was found to freeze the live camera <video>
   // on iOS (it doesn't reliably resume decoding once the dialog closes).
+  // Auto-saves as you type (so forgetting to tap "שמירה" can no longer
+  // lose a typed title/date), but Cancel restores exactly what was here
+  // when the modal opened - not "commit whatever's currently in the
+  // field". An earlier version made Cancel commit too, on the reasoning
+  // that staff losing typed details by tapping the wrong button was the
+  // bigger risk - but that has its own failure mode: an accidental edit
+  // (stray tap, autocorrect, whatever) followed by an instinctive Cancel
+  // would silently commit the accident instead of discarding it. This
+  // way neither failure mode exists: typing is never lost (autosave),
+  // and Cancel is a real undo back to the last known-good value.
+  var eventInfoSnapshot = null;
+  var eventInfoAutosaveTimer = null;
   $('event-settings-btn').addEventListener('click', function () {
     var current = getEventInfo();
     $('event-title-input').value = current.title || '';
     $('event-date-input').value = current.date || '';
+    eventInfoSnapshot = { title: current.title || '', date: current.date || '' };
     $('event-modal').classList.add('active');
   });
-  // Cancel commits the fields too, same as Save - there's no real "throw
-  // away my edits" case worth keeping here, and keeping Cancel as a true
-  // discard was exactly how staff lost typed-in details before: type the
-  // right title, tap the wrong one of two buttons (or just navigate away
-  // some other way) out of habit, and it silently never saved.
   function commitEventInfo() {
     var title = $('event-title-input').value.trim();
     var date = $('event-date-input').value.trim();
     localStorage.setItem(EVENT_KEY, JSON.stringify({ title: title, date: date }));
     syncActiveEvent();
   }
+  function scheduleEventInfoAutosave() {
+    clearTimeout(eventInfoAutosaveTimer);
+    eventInfoAutosaveTimer = setTimeout(commitEventInfo, 500);
+  }
+  $('event-title-input').addEventListener('input', scheduleEventInfoAutosave);
+  $('event-date-input').addEventListener('input', scheduleEventInfoAutosave);
   $('event-modal-cancel').addEventListener('click', function () {
-    commitEventInfo();
+    clearTimeout(eventInfoAutosaveTimer);
+    if (eventInfoSnapshot) {
+      localStorage.setItem(EVENT_KEY, JSON.stringify(eventInfoSnapshot));
+      syncActiveEvent();
+    }
     $('event-modal').classList.remove('active');
   });
   $('event-modal-save').addEventListener('click', function () {
+    clearTimeout(eventInfoAutosaveTimer);
     commitEventInfo();
     $('event-modal').classList.remove('active');
     toast('פרטי האירוע נשמרו');
@@ -392,6 +411,15 @@
         row.replaceChild(input, name);
         input.focus();
         input.select();
+        // On iPad the on-screen keyboard covers roughly the bottom half
+        // of the screen once it slides up, and this row can end up
+        // hidden behind it since nothing here scrolls automatically -
+        // the delay lets the keyboard's slide-in animation finish before
+        // scrolling, otherwise the browser measures the row's position
+        // before the viewport has actually shrunk.
+        setTimeout(function () {
+          input.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }, 300);
         var done = false;
         function commit() {
           if (done) return;
@@ -1493,13 +1521,17 @@
   // Same reasoning as the event-info modal above - window.prompt() was
   // found to freeze the live camera video on iOS, so this uses a normal
   // on-screen modal instead.
+  // Same autosave-while-typing + true-Cancel-reverts pattern as the
+  // event-info modal above (see the comment there for why Cancel no
+  // longer commits whatever's on screen).
+  var printBridgeSnapshot = null;
+  var printBridgeAutosaveTimer = null;
   $('print-settings-btn').addEventListener('click', function () {
-    $('print-bridge-input').value = localStorage.getItem(PRINT_BRIDGE_KEY) || '';
+    var current = localStorage.getItem(PRINT_BRIDGE_KEY) || '';
+    $('print-bridge-input').value = current;
+    printBridgeSnapshot = current;
     $('print-modal').classList.add('active');
   });
-  // Cancel commits too, same reasoning as the event-info modal - this is
-  // exactly the field that got lost before because a real "save" click
-  // was required and easy to skip.
   function commitPrintBridge() {
     var base = $('print-bridge-input').value.trim().replace(/\/$/, '');
     if (base) {
@@ -1508,11 +1540,22 @@
       localStorage.removeItem(PRINT_BRIDGE_KEY);
     }
   }
+  function schedulePrintBridgeAutosave() {
+    clearTimeout(printBridgeAutosaveTimer);
+    printBridgeAutosaveTimer = setTimeout(commitPrintBridge, 500);
+  }
+  $('print-bridge-input').addEventListener('input', schedulePrintBridgeAutosave);
   $('print-modal-cancel').addEventListener('click', function () {
-    commitPrintBridge();
+    clearTimeout(printBridgeAutosaveTimer);
+    if (printBridgeSnapshot) {
+      localStorage.setItem(PRINT_BRIDGE_KEY, printBridgeSnapshot);
+    } else {
+      localStorage.removeItem(PRINT_BRIDGE_KEY);
+    }
     $('print-modal').classList.remove('active');
   });
   $('print-modal-save').addEventListener('click', function () {
+    clearTimeout(printBridgeAutosaveTimer);
     var hadValue = !!$('print-bridge-input').value.trim();
     commitPrintBridge();
     toast(hadValue ? 'כתובת ההדפסה נשמרה' : 'חוזרים לתיבת ההדפסה הרגילה');
