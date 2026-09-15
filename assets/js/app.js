@@ -10,30 +10,32 @@
   var GUEST_MESSAGE = 'תודה שבחרתם ב-Memories4U להיות חלק מהאירוע!\nהיה לנו לעונג ללוות אתכם ולתעד את הרגעים היפים.\nמצורפת התמונה שלכם באיכות מלאה, מוכנה לשימוש ולשיתוף.\nנתראה באירוע הבא ❤️\nMemories4U | ' + BRAND_PHONE;
   var OWNER_MESSAGE = 'תודה שבחרתם ב-Memories4U להיות חלק מהאירוע שלכם.\nהיה לנו לעונג ללוות אתכם ולתעד את הרגעים היפים.\nמצורפות כל התמונות באיכות מלאה, מוכנות לשימוש ולשיתוף.\nנתראה באירוע הבא\n' + BRAND_PHONE;
   var FONT_OPTIONS = {
-    script1: { label: 'כתב יד קלאסי', family: '"Great Vibes", cursive' },
-    script2: { label: 'כתב יד עגול', family: '"Dancing Script", cursive' },
-    serif: { label: 'קלאסי (סריף)', family: '"Playfair Display", serif' },
+    script1: { label: 'כתב יד קלאסי', family: '"Great Vibes", cursive', noHebrew: true },
+    script2: { label: 'כתב יד עגול', family: '"Dancing Script", cursive', noHebrew: true },
+    serif: { label: 'קלאסי (סריף)', family: '"Playfair Display", serif', noHebrew: true },
     sans: { label: 'מודרני', family: '"Rubik", sans-serif' },
-    playful: { label: 'קליל ודק', family: '"Amatic SC", sans-serif' },
-    casual: { label: 'יומיומי', family: '"Caveat", cursive' },
-    romantic: { label: 'רומנטי', family: '"Cormorant Garamond", serif' },
+    playful: { label: 'קליל ודק', family: '"Amatic SC", sans-serif', noHebrew: true },
+    casual: { label: 'יומיומי', family: '"Caveat", cursive', noHebrew: true },
+    romantic: { label: 'רומנטי', family: '"Cormorant Garamond", serif', noHebrew: true },
     hebrewDeco: { label: 'עברי דקורטיבי', family: '"Suez One", serif' },
     hebrewSerif: { label: 'עברי סריף אלגנטי', family: '"Frank Ruhl Libre", serif' },
     hebrewThin: { label: 'עברי דק ומעודן', family: '"Bellefair", serif' },
     hebrewModern: { label: 'עברי מודרני נקי', family: '"Miriam Libre", sans-serif' },
     hebrewRound: { label: 'עברי עגול וידידותי', family: '"Secular One", sans-serif' },
+    hebrewBold: { label: 'עברי מודגש וקריא', family: '"Heebo", sans-serif' },
+    hebrewSerif2: { label: 'עברי סריף חגיגי', family: '"David Libre", serif' },
     slant1: { label: 'נטוי אלגנטי', family: '"Frank Ruhl Libre", serif', italic: true },
     slant2: { label: 'נטוי מודרני', family: '"Rubik", sans-serif', italic: true },
     slant3: { label: 'נטוי עגול', family: '"Secular One", sans-serif', italic: true },
     slant4: { label: 'נטוי רך', family: '"Miriam Libre", sans-serif', italic: true },
-    englishBrush: { label: 'אנגלי - Brush אלגנטי', family: '"Alex Brush", cursive' },
-    englishAllura: { label: 'אנגלי - כתב יד זורם', family: '"Allura", cursive' },
-    englishParisienne: { label: 'אנגלי - פריזאי', family: '"Parisienne", cursive' },
-    englishTangerine: { label: 'אנגלי - עדין וקלאסי', family: '"Tangerine", cursive' },
-    englishPinyon: { label: 'אנגלי - חתונה קלאסית', family: '"Pinyon Script", cursive' },
-    englishDelafield: { label: 'אנגלי - כתב יד מקצועי', family: '"Mrs Saint Delafield", cursive' },
-    englishSacramento: { label: 'אנגלי - כתב יד דק וזורם', family: '"Sacramento", cursive' },
-    englishYellowtail: { label: 'אנגלי - Brush עבה', family: '"Yellowtail", cursive' }
+    englishBrush: { label: 'אנגלי - Brush אלגנטי', family: '"Alex Brush", cursive', noHebrew: true },
+    englishAllura: { label: 'אנגלי - כתב יד זורם', family: '"Allura", cursive', noHebrew: true },
+    englishParisienne: { label: 'אנגלי - פריזאי', family: '"Parisienne", cursive', noHebrew: true },
+    englishTangerine: { label: 'אנגלי - עדין וקלאסי', family: '"Tangerine", cursive', noHebrew: true },
+    englishPinyon: { label: 'אנגלי - חתונה קלאסית', family: '"Pinyon Script", cursive', noHebrew: true },
+    englishDelafield: { label: 'אנגלי - כתב יד מקצועי', family: '"Mrs Saint Delafield", cursive', noHebrew: true },
+    englishSacramento: { label: 'אנגלי - כתב יד דק וזורם', family: '"Sacramento", cursive', noHebrew: true },
+    englishYellowtail: { label: 'אנגלי - Brush עבה', family: '"Yellowtail", cursive', noHebrew: true }
   };
   // Note: several of the Latin script fonts above (Great Vibes, Dancing
   // Script, Playfair Display, Amatic SC, Caveat, Cormorant Garamond, and
@@ -45,10 +47,18 @@
   // synthetic italic/oblique lean (via canvas font-style, browser-
   // rendered even for fonts without a real italic face) on top of fonts
   // already confirmed to support Hebrew.
+  // hebrewBold (Heebo) and hebrewSerif2 (David Libre) were checked by hand
+  // against the rest of the Hebrew set for how they render both scripts
+  // together, plus specifically the gershayim/geresh punctuation (״ ׳ -
+  // common in Hebrew abbreviations like תשפ״ו) since that's easy to get
+  // visually wrong even in a font that otherwise "supports Hebrew". Noto
+  // Sans Hebrew was tested too and dropped - its gershayim renders as two
+  // plain vertical bars that read like stray letters, not a quote mark.
   var FONT_PRELOAD = [
     '52px "Great Vibes"', '52px "Dancing Script"', 'italic 52px "Playfair Display"',
     '52px "Amatic SC"', '52px "Caveat"', 'italic 52px "Cormorant Garamond"', '52px "Suez One"',
     '52px "Frank Ruhl Libre"', '52px "Bellefair"', '52px "Miriam Libre"', '52px "Secular One"',
+    '52px "Heebo"', '52px "David Libre"',
     'italic 52px "Frank Ruhl Libre"', 'italic 52px "Rubik"', 'italic 52px "Secular One"', 'italic 52px "Miriam Libre"',
     '52px "Alex Brush"', '52px "Allura"', '52px "Parisienne"', '52px "Tangerine"', '52px "Pinyon Script"'
   ];
@@ -224,13 +234,23 @@
     $('event-date-input').value = current.date || '';
     $('event-modal').classList.add('active');
   });
-  $('event-modal-cancel').addEventListener('click', function () {
-    $('event-modal').classList.remove('active');
-  });
-  $('event-modal-save').addEventListener('click', function () {
+  // Cancel commits the fields too, same as Save - there's no real "throw
+  // away my edits" case worth keeping here, and keeping Cancel as a true
+  // discard was exactly how staff lost typed-in details before: type the
+  // right title, tap the wrong one of two buttons (or just navigate away
+  // some other way) out of habit, and it silently never saved.
+  function commitEventInfo() {
     var title = $('event-title-input').value.trim();
     var date = $('event-date-input').value.trim();
     localStorage.setItem(EVENT_KEY, JSON.stringify({ title: title, date: date }));
+    syncActiveEvent();
+  }
+  $('event-modal-cancel').addEventListener('click', function () {
+    commitEventInfo();
+    $('event-modal').classList.remove('active');
+  });
+  $('event-modal-save').addEventListener('click', function () {
+    commitEventInfo();
     $('event-modal').classList.remove('active');
     toast('פרטי האירוע נשמרו');
   });
@@ -246,8 +266,8 @@
     $('settings-mode-strip').classList.toggle('active', mode === 'strip');
     $('settings-mode-wide').classList.toggle('active', mode === 'wide');
   }
-  $('settings-mode-strip').addEventListener('click', function () { setCaptureMode('strip'); });
-  $('settings-mode-wide').addEventListener('click', function () { setCaptureMode('wide'); });
+  $('settings-mode-strip').addEventListener('click', function () { setCaptureMode('strip'); syncActiveEvent(); });
+  $('settings-mode-wide').addEventListener('click', function () { setCaptureMode('wide'); syncActiveEvent(); });
   setCaptureMode(captureMode);
 
   // ---------- Welcome screen ----------
@@ -273,6 +293,7 @@
   });
   $('settings-close-btn').addEventListener('click', function () {
     $('settings-panel').classList.remove('active');
+    flushActiveEventSync();
   });
   $('welcome-bg-input').addEventListener('change', function () {
     var file = this.files[0];
@@ -281,6 +302,7 @@
     reader.onload = function () {
       localStorage.setItem(WELCOME_BG_KEY, reader.result);
       applyWelcomeBg();
+      syncActiveEvent();
       toast('הרקע נשמר');
     };
     reader.readAsDataURL(file);
@@ -288,6 +310,7 @@
   $('welcome-bg-clear-btn').addEventListener('click', function () {
     localStorage.removeItem(WELCOME_BG_KEY);
     applyWelcomeBg();
+    syncActiveEvent();
     toast('הרקע אופס');
   });
 
@@ -353,6 +376,44 @@
       var name = document.createElement('span');
       name.className = 'saved-event-name';
       name.textContent = entry.name;
+      var renameBtn = document.createElement('button');
+      renameBtn.type = 'button';
+      renameBtn.className = 'btn btn-ghost';
+      renameBtn.textContent = '✏️';
+      renameBtn.title = 'שינוי שם האירוע';
+      renameBtn.addEventListener('click', function () {
+        // Inline edit instead of window.prompt() - same reason as the
+        // event-info/print-bridge modals: a blocking native dialog was
+        // found to freeze the live camera on iOS.
+        var input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'saved-event-name-input';
+        input.value = entry.name;
+        row.replaceChild(input, name);
+        input.focus();
+        input.select();
+        var done = false;
+        function commit() {
+          if (done) return;
+          done = true;
+          var newName = input.value.trim();
+          if (!newName || newName === entry.name) { renderSavedEventsList(); return; }
+          var list2 = getSavedEvents();
+          var clash = list2.some(function (e, idx) { return idx !== i && e.name === newName; });
+          if (clash) { toast('כבר קיים אירוע בשם הזה'); renderSavedEventsList(); return; }
+          var wasActive = getActiveEventName() === entry.name;
+          list2[i].name = newName;
+          setSavedEvents(list2);
+          if (wasActive) setActiveEventName(newName);
+          renderSavedEventsList();
+          toast('שם האירוע עודכן');
+        }
+        input.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') { e.preventDefault(); commit(); }
+          else if (e.key === 'Escape') { done = true; renderSavedEventsList(); }
+        });
+        input.addEventListener('blur', commit);
+      });
       var loadBtn = document.createElement('button');
       loadBtn.type = 'button';
       loadBtn.className = 'btn btn-ghost';
@@ -398,6 +459,7 @@
         renderSavedEventsList();
       });
       row.appendChild(name);
+      row.appendChild(renameBtn);
       row.appendChild(loadBtn);
       row.appendChild(copyBtn);
       row.appendChild(finishBtn);
@@ -405,40 +467,64 @@
       container.appendChild(row);
     });
   }
-  $('save-event-btn').addEventListener('click', function () {
-    var name = $('save-event-name-input').value.trim();
-    if (!name) { toast('תנו שם לאירוע'); return; }
+  // Writes the CURRENT live setup (event info, print bridge, design,
+  // background, capture mode) into the named event's saved slot -
+  // creating it if it doesn't exist yet. Shared by the explicit "save
+  // event" button and by the silent auto-sync below, so both always
+  // agree on what "saved" means.
+  function writeEventSnapshot(name) {
     var list = getSavedEvents();
     var setup = snapshotCurrentSetup();
     var existingIdx = -1;
     for (var i = 0; i < list.length; i++) { if (list[i].name === name) { existingIdx = i; break; } }
     if (existingIdx >= 0) { list[existingIdx].setup = setup; } else { list.push({ name: name, setup: setup }); }
     setSavedEvents(list);
+  }
+  $('save-event-btn').addEventListener('click', function () {
+    var name = $('save-event-name-input').value.trim();
+    if (!name) { toast('תנו שם לאירוע'); return; }
+    writeEventSnapshot(name);
     setActiveEventName(name);
     $('save-event-name-input').value = '';
     renderSavedEventsList();
     toast('האירוע נשמר');
   });
 
-  // Design-editor changes auto-save to the general/live design right
-  // away, but a saved event only remembers whatever it looked like at
-  // the moment it was last (re)saved by name - so editing an already-
-  // loaded event's design here didn't stick the next time that event was
-  // reloaded. This re-saves under the currently active event's own name,
-  // reusing the exact same "update if the name already exists" logic as
-  // the settings-panel save button above.
+
+  // Any change to event info, print-bridge address, background, capture
+  // mode or design auto-saves straight into the active event (if one is
+  // loaded) - no separate "save" step to forget. Design edits fire very
+  // often (every keystroke/slider tick/drag frame), so those go through
+  // a short debounce instead of writing on every single one; other
+  // changes here only happen on an explicit save/click already, so they
+  // sync immediately. Completely silent - never toasts "no active event"
+  // since most edits happen with no named event loaded at all (the
+  // general album), which is a normal, expected state, not a problem.
+  function syncActiveEvent() {
+    var name = getActiveEventName();
+    if (!name) return;
+    writeEventSnapshot(name);
+  }
+  var activeEventSyncTimer = null;
+  function scheduleActiveEventSync() {
+    clearTimeout(activeEventSyncTimer);
+    activeEventSyncTimer = setTimeout(syncActiveEvent, 700);
+  }
+  function flushActiveEventSync() {
+    clearTimeout(activeEventSyncTimer);
+    syncActiveEvent();
+  }
+
+  // Kept as an explicit "sync now" action (e.g. right before walking away
+  // from the iPad) - everything it does now also happens automatically,
+  // but forcing it immediately plus the reassuring toast doesn't hurt.
   function saveCurrentSetupToActiveEvent() {
     var name = getActiveEventName();
     if (!name) {
       toast('אין אירוע פעיל - שמרו קודם אירוע בשם דרך ⚙ הגדרות');
       return;
     }
-    var list = getSavedEvents();
-    var setup = snapshotCurrentSetup();
-    var existingIdx = -1;
-    for (var i = 0; i < list.length; i++) { if (list[i].name === name) { existingIdx = i; break; } }
-    if (existingIdx >= 0) { list[existingIdx].setup = setup; } else { list.push({ name: name, setup: setup }); }
-    setSavedEvents(list);
+    writeEventSnapshot(name);
     toast('העיצוב נשמר לאירוע "' + name + '"');
   }
 
@@ -540,27 +626,33 @@
   // directly - duplicating one bakes in a plain copy of the current text.
   var STRIP_DESIGN_KEY = 'm4u_strip_design';
   var WIDE_DESIGN_KEY = 'm4u_wide_design';
+  // A staff-defined "my own default" per tab (📌 in the design editor) -
+  // when set, the ↺ reset button restores THIS instead of the built-in
+  // DEFAULT_STRIP_DESIGN/DEFAULT_WIDE_DESIGN below, so "reset" gives back
+  // the layout staff actually wants, not the app's original placeholder.
+  var CUSTOM_DEFAULT_STRIP_KEY = 'm4u_custom_default_strip';
+  var CUSTOM_DEFAULT_WIDE_KEY = 'm4u_custom_default_wide';
 
   var DEFAULT_STRIP_DESIGN = {
     sideTextW: 26, innerPad: 14, topMargin: 30, gap: 14, footerH: 230, cornerRadius: 6,
     layers: [
-      { id: 'title', type: 'text', auto: 'title', x: 0.5, y: 0.911, size: 52, color: '#2A2418', font: 'script1', rotation: 0, weight: '' },
+      { id: 'title', type: 'text', auto: 'title', x: 0.5, y: 0.911, size: 52, color: '#2A2418', font: 'englishParisienne', rotation: 0, weight: '' },
       { id: 'heart', type: 'emoji', text: '♥', x: 0.5, y: 0.936, size: 20, color: '#2A2418', rotation: 0 },
       { id: 'date', type: 'text', auto: 'date', x: 0.5, y: 0.962, size: 24, color: '#2A2418', font: 'sans', rotation: 0, weight: '600' },
-      { id: 'brand-ig-icon', type: 'image', src: 'assets/img/instagram-icon.png', x: 0.37, y: 0.966, size: 6, rotation: 0 },
-      { id: 'brand-handle', type: 'text', text: '#MEMORIES4U', x: 0.63, y: 0.966, size: 15, color: '#2A2418', font: 'sans', rotation: 0, weight: '600' },
-      { id: 'brand-phone', type: 'text', text: BRAND_PHONE, x: 0.5, y: 0.983, size: 15, color: '#2A2418', font: 'sans', rotation: 0, weight: '600' }
+      { id: 'brand-ig-icon', type: 'image', src: 'assets/img/instagram-icon.png', x: 0.045, y: 0.55, size: 6, rotation: -90 },
+      { id: 'brand-handle', type: 'text', text: '#MEMORIES4U', x: 0.045, y: 0.40, size: 15, color: '#2A2418', font: 'sans', rotation: -90, weight: '600' },
+      { id: 'brand-phone', type: 'text', text: BRAND_PHONE, x: 0.045, y: 0.27, size: 15, color: '#2A2418', font: 'sans', rotation: -90, weight: '600' }
     ]
   };
   var DEFAULT_WIDE_DESIGN = {
     marginTopPct: 0.045, marginSidePct: 0.045, footerPct: 0.2, cornerRadius: 0,
     layers: [
-      { id: 'title', type: 'text', auto: 'title', x: 0.5, y: 0.855, size: 9, color: '#2A2418', font: 'script1', rotation: 0, weight: '' },
+      { id: 'title', type: 'text', auto: 'title', x: 0.5, y: 0.855, size: 5.8, color: '#2A2418', font: 'englishParisienne', rotation: 0, weight: '' },
       { id: 'heart', type: 'emoji', text: '♥', x: 0.5, y: 0.898, size: 3.2, color: '#2A2418', rotation: 0 },
       { id: 'date', type: 'text', auto: 'date', x: 0.5, y: 0.940, size: 3.8, color: '#2A2418', font: 'sans', rotation: 0, weight: '600' },
-      { id: 'brand-ig-icon', type: 'image', src: 'assets/img/instagram-icon.png', x: 0.40, y: 0.965, size: 2.2, rotation: 0 },
-      { id: 'brand-handle', type: 'text', text: '#MEMORIES4U', x: 0.61, y: 0.965, size: 2.6, color: '#6B6559', font: 'sans', rotation: 0, weight: '600' },
-      { id: 'brand-phone', type: 'text', text: BRAND_PHONE, x: 0.5, y: 0.983, size: 2.6, color: '#6B6559', font: 'sans', rotation: 0, weight: '600' }
+      { id: 'brand-ig-icon', type: 'image', src: 'assets/img/instagram-icon.png', x: 0.045, y: 0.60, size: 2.2, rotation: -90 },
+      { id: 'brand-handle', type: 'text', text: '#MEMORIES4U', x: 0.045, y: 0.44, size: 2.6, color: '#6B6559', font: 'sans', rotation: -90, weight: '600' },
+      { id: 'brand-phone', type: 'text', text: BRAND_PHONE, x: 0.045, y: 0.30, size: 2.6, color: '#6B6559', font: 'sans', rotation: -90, weight: '600' }
     ]
   };
 
@@ -674,6 +766,12 @@
       if (stack.length > DESIGN_UNDO_LIMIT) stack.shift();
     }
     localStorage.setItem(key, JSON.stringify(design));
+    // Debounced, not immediate - a drag or a slider fires this dozens of
+    // times a second, and syncing the whole saved-event list on every one
+    // would be wasteful. scheduleActiveEventSync/syncActiveEvent are
+    // defined earlier in this file (both plain function declarations, so
+    // hoisting makes them callable from here regardless of file order).
+    scheduleActiveEventSync();
   }
   function undoDesign(key) {
     var stack = designUndoStacks[key];
@@ -731,7 +829,7 @@
           ctx.drawImage(img, ipx - iw / 2, ipy - ih / 2, iw, ih);
         }
         ctx.restore();
-        if (hits) hits.push({ key: layer.id, x: ipx - iw / 2, y: ipy - ih / 2, w: iw, h: ih });
+        if (hits) hits.push({ key: layer.id, x: ipx - iw / 2, y: ipy - ih / 2, w: iw, h: ih, cx: ipx, cy: ipy, rotation: layer.rotation || 0 });
         return;
       }
       var text = layer.type === 'emoji' ? (layer.text || '♥') : layer.text;
@@ -785,7 +883,7 @@
 
       if (hits) {
         var th = (metrics.actualBoundingBoxAscent || 0) + (metrics.actualBoundingBoxDescent || 0) || sizePx;
-        hits.push({ key: layer.id, x: px - metrics.width / 2, y: py - th, w: metrics.width, h: th * 1.4 });
+        hits.push({ key: layer.id, x: px - metrics.width / 2, y: py - th, w: metrics.width, h: th * 1.4, cx: px, cy: py, rotation: layer.rotation || 0 });
       }
     });
   }
@@ -1399,18 +1497,25 @@
     $('print-bridge-input').value = localStorage.getItem(PRINT_BRIDGE_KEY) || '';
     $('print-modal').classList.add('active');
   });
-  $('print-modal-cancel').addEventListener('click', function () {
-    $('print-modal').classList.remove('active');
-  });
-  $('print-modal-save').addEventListener('click', function () {
+  // Cancel commits too, same reasoning as the event-info modal - this is
+  // exactly the field that got lost before because a real "save" click
+  // was required and easy to skip.
+  function commitPrintBridge() {
     var base = $('print-bridge-input').value.trim().replace(/\/$/, '');
     if (base) {
       localStorage.setItem(PRINT_BRIDGE_KEY, base);
-      toast('כתובת ההדפסה נשמרה');
     } else {
       localStorage.removeItem(PRINT_BRIDGE_KEY);
-      toast('חוזרים לתיבת ההדפסה הרגילה');
     }
+  }
+  $('print-modal-cancel').addEventListener('click', function () {
+    commitPrintBridge();
+    $('print-modal').classList.remove('active');
+  });
+  $('print-modal-save').addEventListener('click', function () {
+    var hadValue = !!$('print-bridge-input').value.trim();
+    commitPrintBridge();
+    toast(hadValue ? 'כתובת ההדפסה נשמרה' : 'חוזרים לתיבת ההדפסה הרגילה');
     $('print-modal').classList.remove('active');
   });
   var printCopies = 1;
@@ -1584,7 +1689,8 @@
   // rotation, plus center/duplicate/delete actions. Works with touch,
   // mouse, and Apple Pencil alike since it's all built on Pointer Events.
   var FONT_SELECT_OPTIONS = Object.keys(FONT_OPTIONS).map(function (key) {
-    return { value: key, label: FONT_OPTIONS[key].label };
+    var opt = FONT_OPTIONS[key];
+    return { value: key, label: (opt.noHebrew ? '⚠️ ' : '') + opt.label + (opt.noHebrew ? ' (לא לעברית)' : '') };
   });
   // Deliberately only solid/filled heart shapes (no outline, no other
   // colors) - ♥ ❤ ❦ ❧ render filled-in and respect whatever color is
@@ -1639,6 +1745,7 @@
   }
 
   function currentDesignKey() { return designTab === 'strip' ? STRIP_DESIGN_KEY : WIDE_DESIGN_KEY; }
+  function currentCustomDefaultKey() { return designTab === 'strip' ? CUSTOM_DEFAULT_STRIP_KEY : CUSTOM_DEFAULT_WIDE_KEY; }
   function currentDesign() { return designTab === 'strip' ? getStripDesign() : getWideDesign(); }
 
   function renderDesignPreview() {
@@ -1654,11 +1761,18 @@
     if (selectedLayerId) {
       var hit = designHits.filter(function (h) { return h.key === selectedLayerId; })[0];
       if (hit) {
+        // Drawn relative to the layer's own pivot (cx,cy) and rotated the
+        // same way the layer itself is (rotation 0 makes this identical to
+        // the old fixed strokeRect) - the box previously stayed axis-
+        // aligned even when the layer was rotated, so a rotated logo's
+        // selection outline visibly stopped matching it.
         ctx.save();
         ctx.strokeStyle = '#D9C696';
         ctx.lineWidth = 3;
         ctx.setLineDash([8, 6]);
-        ctx.strokeRect(hit.x - 6, hit.y - 6, hit.w + 12, hit.h + 12);
+        ctx.translate(hit.cx, hit.cy);
+        ctx.rotate((hit.rotation || 0) * Math.PI / 180);
+        ctx.strokeRect(hit.x - hit.cx - 6, hit.y - hit.cy - 6, hit.w + 12, hit.h + 12);
         ctx.restore();
       }
     }
@@ -1772,21 +1886,35 @@
     b.addEventListener('click', onClick);
     return b;
   }
+  // The number box next to each slider only commits on blur/Enter (the
+  // 'change' event), not on every keystroke - typing "-90" one digit at a
+  // time would otherwise get clamped to the slider's min/max mid-way
+  // through (e.g. "-9" clamped before the final "0" is even typed).
   function buildLiveRangeRow(labelText, value, range, onChange) {
     var row = mkRow(labelText);
     var input = document.createElement('input');
     input.type = 'range';
     input.min = range.min; input.max = range.max; input.step = range.step;
     input.value = value;
-    var val = document.createElement('span');
-    val.className = 'val';
-    val.textContent = value;
+    var num = document.createElement('input');
+    num.type = 'number';
+    num.className = 'val-input';
+    num.min = range.min; num.max = range.max; num.step = range.step;
+    num.value = value;
     input.addEventListener('input', function () {
-      val.textContent = input.value;
+      num.value = input.value;
       onChange(Number(input.value));
     });
+    num.addEventListener('change', function () {
+      var v = Number(num.value);
+      if (isNaN(v)) { num.value = input.value; return; }
+      v = Math.min(range.max, Math.max(range.min, v));
+      num.value = v;
+      input.value = v;
+      onChange(v);
+    });
     row.appendChild(input);
-    row.appendChild(val);
+    row.appendChild(num);
     return row;
   }
   function buildRangeRow(design, c) {
@@ -1796,18 +1924,31 @@
     input.type = 'range';
     input.min = c.min; input.max = c.max; input.step = c.step;
     input.value = design[c.key] * scale;
-    var val = document.createElement('span');
-    val.className = 'val';
-    val.textContent = Math.round(design[c.key] * scale);
-    input.addEventListener('input', function () {
+    var num = document.createElement('input');
+    num.type = 'number';
+    num.className = 'val-input';
+    num.min = c.min; num.max = c.max; num.step = c.step;
+    num.value = Math.round(design[c.key] * scale * 100) / 100;
+    function apply(v) {
       var d = currentDesign();
-      d[c.key] = Number(input.value) / scale;
+      d[c.key] = v / scale;
       saveDesign(currentDesignKey(), d);
-      val.textContent = input.value;
       renderDesignPreview();
+    }
+    input.addEventListener('input', function () {
+      num.value = input.value;
+      apply(Number(input.value));
+    });
+    num.addEventListener('change', function () {
+      var v = Number(num.value);
+      if (isNaN(v)) { num.value = input.value; return; }
+      v = Math.min(c.max, Math.max(c.min, v));
+      num.value = v;
+      input.value = v;
+      apply(v);
     });
     row.appendChild(input);
-    row.appendChild(val);
+    row.appendChild(num);
     return row;
   }
 
@@ -1890,6 +2031,41 @@
     nudgeWrap.appendChild(hRow);
     wrap.appendChild(nudgeWrap);
 
+    // Exact position, as % of the card - x/y are stored as 0-1 fractions
+    // internally, so this is just that times 100. Dragging and the nudge
+    // buttons above are fine for "roughly here"; this is for dialing in
+    // an exact spot (e.g. matching a position you already measured on
+    // another layer) without guessing at a slider or drag gesture.
+    wrap.appendChild(buildLiveRangeRow('מיקום אופקי (%)', Math.round(layer.x * 1000) / 10, { min: 0, max: 100, step: 0.1 }, function (v) {
+      layer.x = Math.min(1, Math.max(0, v / 100));
+      saveDesign(currentDesignKey(), design);
+      renderDesignPreview();
+    }));
+    wrap.appendChild(buildLiveRangeRow('מיקום אנכי (%)', Math.round(layer.y * 1000) / 10, { min: 0, max: 100, step: 0.1 }, function (v) {
+      layer.y = Math.min(1, Math.max(0, v / 100));
+      saveDesign(currentDesignKey(), design);
+      renderDesignPreview();
+    }));
+
+    // Shared by the text-content input and the font-style select below -
+    // whichever one changes last, this re-checks whether the picked font
+    // actually supports Hebrew against what's actually typed (for a
+    // fixed layer) or just warns unconditionally (for an auto title/date
+    // layer, since its real text comes from the event info and isn't
+    // known here - better to warn early than miss a Hebrew event name).
+    var fontWarnRow = document.createElement('p');
+    fontWarnRow.className = 'design-hint font-hebrew-warn';
+    function updateFontWarning() {
+      var opt = FONT_OPTIONS[layer.font];
+      var hasHebrew = layer.auto || /[֐-׿]/.test(layer.text || '');
+      if (opt && opt.noHebrew && hasHebrew) {
+        fontWarnRow.textContent = '⚠️ הגופן הזה לא תומך בעברית - טקסט עברי בו יוצא בגופן גנרי ולא יפה.';
+        fontWarnRow.style.display = '';
+      } else {
+        fontWarnRow.style.display = 'none';
+      }
+    }
+
     if (layer.type === 'text' && !layer.auto) {
       var trow = mkRow('תוכן הטקסט');
       var input = document.createElement('input');
@@ -1900,6 +2076,7 @@
         layer.text = input.value;
         saveDesign(currentDesignKey(), design);
         renderDesignPreview();
+        updateFontWarning();
       });
       trow.appendChild(input);
       wrap.appendChild(trow);
@@ -1960,9 +2137,12 @@
         layer.font = select.value;
         saveDesign(currentDesignKey(), design);
         renderDesignPreview();
+        updateFontWarning();
       });
       frow.appendChild(select);
       wrap.appendChild(frow);
+      wrap.appendChild(fontWarnRow);
+      updateFontWarning();
 
       var brow = mkRow('עובי הכתב');
       var boldBtn = document.createElement('button');
@@ -2123,16 +2303,45 @@
     switchDesignTab(designTab);
   });
   $('design-back-btn').addEventListener('click', function () {
+    flushActiveEventSync();
     showScreen('screen-welcome');
   });
   $('design-tab-strip').addEventListener('click', function () { switchDesignTab('strip'); });
   $('design-tab-wide').addEventListener('click', function () { switchDesignTab('wide'); });
-  $('design-reset-btn').addEventListener('click', function () {
-    localStorage.removeItem(currentDesignKey());
+  // Reset asks first (native confirm() was ruled out app-wide - see the
+  // event-info modal's comment above about it freezing the iOS camera),
+  // and what it resets TO is whatever was last pinned with 📌 for this
+  // tab, falling back to the app's original built-in layout only if
+  // nothing has ever been pinned.
+  function performDesignReset() {
+    var customRaw = localStorage.getItem(currentCustomDefaultKey());
+    if (customRaw) {
+      try {
+        saveDesign(currentDesignKey(), JSON.parse(customRaw));
+      } catch (e) {
+        localStorage.removeItem(currentDesignKey());
+      }
+    } else {
+      localStorage.removeItem(currentDesignKey());
+    }
     selectedLayerId = null;
     renderDesignControls();
     renderDesignPreview();
+    syncActiveEvent();
     toast('אופס לברירת המחדל');
+  }
+  $('design-reset-btn').addEventListener('click', function () {
+    $('reset-confirm-text').textContent = 'לאפס את העיצוב של "' +
+      (designTab === 'strip' ? 'סטריפ 3' : 'תמונה רחבה') +
+      '" לברירת המחדל? כל שינוי שלא נקבע כברירת מחדל (📌) יימחק.';
+    $('reset-confirm-modal').classList.add('active');
+  });
+  $('reset-confirm-cancel').addEventListener('click', function () {
+    $('reset-confirm-modal').classList.remove('active');
+  });
+  $('reset-confirm-ok').addEventListener('click', function () {
+    $('reset-confirm-modal').classList.remove('active');
+    performDesignReset();
   });
   $('design-undo-btn').addEventListener('click', function () {
     if (!undoDesign(currentDesignKey())) { toast('אין פעולה לבטל'); return; }
@@ -2142,6 +2351,10 @@
     toast('הפעולה האחרונה בוטלה');
   });
   $('design-save-event-btn').addEventListener('click', saveCurrentSetupToActiveEvent);
+  $('design-set-default-btn').addEventListener('click', function () {
+    localStorage.setItem(currentCustomDefaultKey(), JSON.stringify(currentDesign()));
+    toast('העיצוב הנוכחי נקבע כברירת מחדל - כפתור האיפוס יחזיר לכאן מעכשיו');
+  });
 
   function designPointFromEvent(e) {
     var rect = designCanvas.getBoundingClientRect();

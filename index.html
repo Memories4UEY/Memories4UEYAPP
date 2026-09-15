@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="assets/css/style.css">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Dancing+Script:wght@600&family=Playfair+Display:ital@1&family=Amatic+SC:wght@700&family=Caveat:wght@600&family=Cormorant+Garamond:ital@1&family=Suez+One&family=Frank+Ruhl+Libre:ital,wght@0,500;1,500&family=Bellefair&family=Miriam+Libre:wght@700&family=Secular+One&family=Alex+Brush&family=Allura&family=Parisienne&family=Tangerine:wght@700&family=Pinyon+Script&family=Mrs+Saint+Delafield&family=Sacramento&family=Yellowtail&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Dancing+Script:wght@600&family=Playfair+Display:ital@1&family=Amatic+SC:wght@700&family=Caveat:wght@600&family=Cormorant+Garamond:ital@1&family=Suez+One&family=Frank+Ruhl+Libre:ital,wght@0,500;1,500&family=Bellefair&family=Miriam+Libre:wght@700&family=Secular+One&family=Heebo:wght@700&family=David+Libre:wght@700&family=Alex+Brush&family=Allura&family=Parisienne&family=Tangerine:wght@700&family=Pinyon+Script&family=Mrs+Saint+Delafield&family=Sacramento&family=Yellowtail&display=swap">
 <style>
   html, body {
     height: 100%;
@@ -281,6 +281,11 @@
     padding: 8px 10px;
   }
   .saved-event-name { flex: 1; font-size: 13px; color: var(--color-text); }
+  .saved-event-name-input {
+    flex: 1; font-size: 13px; color: var(--color-text);
+    background: var(--color-surface); border: 1px solid var(--color-gold);
+    border-radius: 6px; padding: 4px 8px; min-width: 0;
+  }
   .saved-event-row .btn { padding: 6px 10px; font-size: 12px; }
 
   /* ---- Generic small modal (event info / print bridge address) ----
@@ -853,6 +858,17 @@
     font-size: 12px;
     color: var(--color-text-muted);
   }
+  .design-row .val-input {
+    width: 52px;
+    flex-shrink: 0;
+    text-align: center;
+    font-size: 12px;
+    color: var(--color-text);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    padding: 4px 2px;
+  }
   .design-row input[type="color"] {
     flex: 1;
     height: 34px;
@@ -949,6 +965,9 @@
     color: var(--color-text-muted);
     text-align: center;
     margin: 0 0 10px;
+  }
+  .font-hebrew-warn {
+    color: #e0a030; text-align: start; margin: -4px 0 10px;
   }
 </style>
 </head>
@@ -1054,6 +1073,18 @@
     <div class="modal-actions">
       <button class="btn btn-ghost" id="print-modal-cancel">ביטול</button>
       <button class="btn" id="print-modal-save">שמירה</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ RESET-TO-DEFAULT CONFIRMATION MODAL ============ -->
+<div class="modal-overlay" id="reset-confirm-modal">
+  <div class="modal-box">
+    <h2>איפוס לברירת מחדל</h2>
+    <label class="settings-label" id="reset-confirm-text">לאפס את העיצוב הזה לברירת המחדל? כל שינוי שלא נקבע כברירת מחדל יימחק.</label>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="reset-confirm-cancel">ביטול</button>
+      <button class="btn" id="reset-confirm-ok">כן, אפס</button>
     </div>
   </div>
 </div>
@@ -1186,6 +1217,7 @@
     <div class="topbar-actions">
       <button class="icon-btn" id="design-undo-btn" aria-label="בטל פעולה אחרונה" title="בטל את הפעולה האחרונה">↩</button>
       <button class="icon-btn" id="design-save-event-btn" aria-label="שמירה לאירוע" title="שמירת העיצוב הנוכחי לאירוע הפעיל">💾</button>
+      <button class="icon-btn" id="design-set-default-btn" aria-label="קביעת ברירת מחדל" title="קביעת העיצוב הנוכחי כברירת המחדל של הלשונית הזו">📌</button>
       <button class="icon-btn" id="design-reset-btn" aria-label="איפוס" title="איפוס לברירת מחדל">↺</button>
     </div>
   </div>
