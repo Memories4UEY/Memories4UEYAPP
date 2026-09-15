@@ -673,14 +673,14 @@
   var CUSTOM_DEFAULT_WIDE_KEY = 'm4u_custom_default_wide';
 
   var DEFAULT_STRIP_DESIGN = {
-    sideTextW: 26, innerPad: 14, topMargin: 30, gap: 14, footerH: 230, cornerRadius: 6,
+    sideTextW: 22, innerPad: 14, topMargin: 48, gap: 22, footerH: 230, cornerRadius: 8,
     layers: [
-      { id: 'title', type: 'text', auto: 'title', x: 0.5, y: 0.911, size: 52, color: '#2A2418', font: 'englishParisienne', rotation: 0, weight: '' },
-      { id: 'heart', type: 'emoji', text: '♥', x: 0.5, y: 0.936, size: 20, color: '#2A2418', rotation: 0 },
-      { id: 'date', type: 'text', auto: 'date', x: 0.5, y: 0.962, size: 24, color: '#2A2418', font: 'sans', rotation: 0, weight: '600' },
-      { id: 'brand-ig-icon', type: 'image', src: 'assets/img/instagram-icon.png', x: 0.045, y: 0.55, size: 6, rotation: -90 },
-      { id: 'brand-handle', type: 'text', text: '#MEMORIES4U', x: 0.045, y: 0.40, size: 15, color: '#2A2418', font: 'sans', rotation: -90, weight: '600' },
-      { id: 'brand-phone', type: 'text', text: BRAND_PHONE, x: 0.045, y: 0.27, size: 15, color: '#2A2418', font: 'sans', rotation: -90, weight: '600' }
+      { id: 'title', type: 'text', auto: 'title', x: 0.5, y: 0.921, size: 52, color: '#2A2418', font: 'englishParisienne', rotation: 0, weight: '' },
+      { id: 'heart', type: 'emoji', text: '♥', x: 0.48, y: 0.946, size: 31, color: '#2A2418', rotation: 90 },
+      { id: 'date', type: 'text', auto: 'date', x: 0.5, y: 0.979, size: 24, color: '#2A2418', font: 'englishPinyon', rotation: 0, weight: 'bold' },
+      { id: 'brand-ig-icon', type: 'image', src: 'assets/img/instagram-icon.png', x: 0.035, y: 0.862, size: 4.5, rotation: -90 },
+      { id: 'brand-handle', type: 'text', text: '#MEMORIES4U', x: 0.053, y: 0.82, size: 15, color: '#2A2418', font: 'sans', rotation: -90, weight: 'bold' },
+      { id: 'brand-phone', type: 'text', text: BRAND_PHONE, x: 0.053, y: 0.752, size: 15, color: '#2A2418', font: 'sans', rotation: -90, weight: 'bold' }
     ]
   };
   var DEFAULT_WIDE_DESIGN = {
@@ -1744,7 +1744,7 @@
   // mouse, and Apple Pencil alike since it's all built on Pointer Events.
   var FONT_SELECT_OPTIONS = Object.keys(FONT_OPTIONS).map(function (key) {
     var opt = FONT_OPTIONS[key];
-    return { value: key, label: (opt.noHebrew ? '⚠️ ' : '') + opt.label + (opt.noHebrew ? ' (לא לעברית)' : '') };
+    return { value: key, label: opt.label + (opt.noHebrew ? ' (לא לעברית)' : '') };
   });
   // Deliberately only solid/filled heart shapes (no outline, no other
   // colors) - ♥ ❤ ❦ ❧ render filled-in and respect whatever color is
@@ -1955,6 +1955,7 @@
     num.className = 'val-input';
     num.min = range.min; num.max = range.max; num.step = range.step;
     num.value = value;
+    num.addEventListener('focus', scrollFieldAboveKeyboard);
     input.addEventListener('input', function () {
       num.value = input.value;
       onChange(Number(input.value));
@@ -1971,6 +1972,17 @@
     row.appendChild(num);
     return row;
   }
+  // On iOS the on-screen keyboard covers the bottom of the screen, so a
+  // field near the bottom of the panel (e.g. rotation, which is one of
+  // the last rows) ends up hidden behind it right when the user starts
+  // typing. Nudging it into view once the keyboard has finished
+  // animating in keeps it visible while editing.
+  function scrollFieldAboveKeyboard(e) {
+    var el = e.target;
+    setTimeout(function () {
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }, 300);
+  }
   function buildRangeRow(design, c) {
     var row = mkRow(c.label);
     var scale = c.scale || 1;
@@ -1983,6 +1995,7 @@
     num.className = 'val-input';
     num.min = c.min; num.max = c.max; num.step = c.step;
     num.value = Math.round(design[c.key] * scale * 100) / 100;
+    num.addEventListener('focus', scrollFieldAboveKeyboard);
     function apply(v) {
       var d = currentDesign();
       d[c.key] = v / scale;
@@ -2097,6 +2110,32 @@
     }));
     wrap.appendChild(buildLiveRangeRow('מיקום אנכי (%)', Math.round(layer.y * 1000) / 10, { min: 0, max: 100, step: 0.1 }, function (v) {
       layer.y = Math.min(1, Math.max(0, v / 100));
+      saveDesign(currentDesignKey(), design);
+      renderDesignPreview();
+    }));
+
+    // Size and rotation live right next to position (all four are the
+    // same kind of "exact number" control) instead of after the
+    // content/font/color fields further down.
+    // Image layer size is always % of the card's width (so it scales
+    // sensibly with either mode); text/emoji keep their existing scale
+    // (raw px for the strip, % of width for the wide photo).
+    // min is 1, not 5 - the built-in Instagram-icon layer defaults to 2.2
+    // in wide-photo mode, and a slider min above a layer's actual value
+    // clamps the displayed thumb to that min without touching the real
+    // (smaller) value, so the next drag jumps from the true value straight
+    // to wherever the thumb visually starts instead of moving smoothly.
+    var sizeRange = layer.type === 'image'
+      ? { min: 1, max: 100, step: 0.5 }
+      : (designTab === 'strip' ? { min: 8, max: 100, step: 1 } : { min: 1, max: 15, step: 0.2 });
+    wrap.appendChild(buildLiveRangeRow('גודל', layer.size, sizeRange, function (v) {
+      layer.size = v;
+      saveDesign(currentDesignKey(), design);
+      renderDesignPreview();
+    }));
+
+    wrap.appendChild(buildLiveRangeRow('סיבוב', layer.rotation || 0, { min: -180, max: 180, step: 5 }, function (v) {
+      layer.rotation = v;
       saveDesign(currentDesignKey(), design);
       renderDesignPreview();
     }));
@@ -2229,29 +2268,6 @@
       crow.appendChild(color);
       wrap.appendChild(crow);
     }
-
-    // Image layer size is always % of the card's width (so it scales
-    // sensibly with either mode); text/emoji keep their existing scale
-    // (raw px for the strip, % of width for the wide photo).
-    // min is 1, not 5 - the built-in Instagram-icon layer defaults to 2.2
-    // in wide-photo mode, and a slider min above a layer's actual value
-    // clamps the displayed thumb to that min without touching the real
-    // (smaller) value, so the next drag jumps from the true value straight
-    // to wherever the thumb visually starts instead of moving smoothly.
-    var sizeRange = layer.type === 'image'
-      ? { min: 1, max: 100, step: 0.5 }
-      : (designTab === 'strip' ? { min: 8, max: 100, step: 1 } : { min: 1, max: 15, step: 0.2 });
-    wrap.appendChild(buildLiveRangeRow('גודל', layer.size, sizeRange, function (v) {
-      layer.size = v;
-      saveDesign(currentDesignKey(), design);
-      renderDesignPreview();
-    }));
-
-    wrap.appendChild(buildLiveRangeRow('סיבוב', layer.rotation || 0, { min: -180, max: 180, step: 5 }, function (v) {
-      layer.rotation = v;
-      saveDesign(currentDesignKey(), design);
-      renderDesignPreview();
-    }));
 
     return wrap;
   }
