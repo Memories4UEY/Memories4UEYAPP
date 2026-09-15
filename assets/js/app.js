@@ -409,6 +409,16 @@
         input.className = 'saved-event-name-input';
         input.value = entry.name;
         row.replaceChild(input, name);
+        // The input was squeezed in next to 4 other buttons (טעינה/📋/📦/🗑)
+        // still sitting in the same row, leaving it almost no width to
+        // actually show the name being typed - hiding them while editing
+        // gives the input the whole row. They come back on their own
+        // since commit/cancel both end in a full renderSavedEventsList().
+        renameBtn.style.display = 'none';
+        loadBtn.style.display = 'none';
+        copyBtn.style.display = 'none';
+        finishBtn.style.display = 'none';
+        delBtn.style.display = 'none';
         input.focus();
         input.select();
         // On iPad the on-screen keyboard covers roughly the bottom half
