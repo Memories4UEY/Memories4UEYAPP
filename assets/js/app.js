@@ -494,6 +494,7 @@
       delBtn.textContent = '🗑';
       delBtn.addEventListener('click', function () {
         setSavedEvents(getSavedEvents().filter(function (_, idx) { return idx !== i; }));
+        if (getActiveEventName() === entry.name) setActiveEventName('');
         renderSavedEventsList();
       });
       row.appendChild(name);
