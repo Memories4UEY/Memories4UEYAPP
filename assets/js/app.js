@@ -305,11 +305,12 @@
     showScreen('screen-camera');
     startCamera();
   });
-  $('welcome-settings-btn').addEventListener('click', function () {
+  function openSettingsPanel() {
     $('settings-panel').classList.add('active');
     renderSavedEventsList();
     setActiveEventName(getActiveEventName());
-  });
+  }
+  $('welcome-settings-btn').addEventListener('click', openSettingsPanel);
   $('settings-close-btn').addEventListener('click', function () {
     $('settings-panel').classList.remove('active');
     flushActiveEventSync();
@@ -456,7 +457,7 @@
       var loadBtn = document.createElement('button');
       loadBtn.type = 'button';
       loadBtn.className = 'btn btn-ghost';
-      loadBtn.textContent = 'טעינה';
+      loadBtn.innerHTML = '📂<span class="btn-icon-label">טעינה</span>';
       loadBtn.addEventListener('click', function () {
         applySavedSetup(entry.setup, entry.name);
         renderGalleryGrid();
@@ -1310,6 +1311,7 @@
   $('shutter-btn').addEventListener('click', capture);
   $('open-gallery-btn').addEventListener('click', function () {
     $('settings-panel').classList.remove('active');
+    reopenSettingsAfterScreen = true;
     openGallery('screen-welcome');
   });
   // Photos captured while no named saved event was active (the default
@@ -1319,6 +1321,7 @@
   $('unassigned-event-btn').addEventListener('click', function () {
     setActiveEventName('');
     $('settings-panel').classList.remove('active');
+    reopenSettingsAfterScreen = true;
     openGallery('screen-welcome');
   });
 
@@ -1385,7 +1388,10 @@
     stopCamera();
     showScreen('screen-result');
   });
-  $('result-gallery-btn').addEventListener('click', function () { openGallery('screen-result'); });
+  $('result-gallery-btn').addEventListener('click', function () {
+    reopenSettingsAfterScreen = false;
+    openGallery('screen-result');
+  });
 
   $('btn-delete').addEventListener('click', function () {
     if (currentPhotoId == null) return;
@@ -1649,6 +1655,11 @@
   // Remembers which screen opened the gallery (guest result screen, or
   // staff settings panel) so the back button returns to the right place.
   var galleryReturnScreen = 'screen-camera';
+  // When a screen (gallery, design editor) was reached from the settings
+  // panel (⚙), its back button should reopen settings too - not just dump
+  // staff on the main screen and make them tap ⚙ all over again. Shared
+  // across every settings-launched screen, not just the gallery.
+  var reopenSettingsAfterScreen = false;
   var gallerySelectMode = false;
   var gallerySelectedIds = {};
 
@@ -1687,7 +1698,7 @@
         return;
       }
       var selectedCount = Object.keys(gallerySelectedIds).length;
-      $('gallery-share-selected-btn').textContent = '📤 שתף (' + selectedCount + ')';
+      $('gallery-share-selected-btn').innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px" aria-hidden="true"><path d="M4 11v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8"/><path d="M12 15V3"/><path d="M7 8l5-5 5 5"/></svg> שתף (' + selectedCount + ')';
       $('gallery-delete-selected-btn').textContent = '🗑️ מחק (' + selectedCount + ')';
       rows.forEach(function (row) {
         var isSelected = !!gallerySelectedIds[row.id];
@@ -1723,6 +1734,10 @@
   $('gallery-back-btn').addEventListener('click', function () {
     showScreen(galleryReturnScreen);
     if (galleryReturnScreen === 'screen-camera') startCamera();
+    if (reopenSettingsAfterScreen) {
+      reopenSettingsAfterScreen = false;
+      openSettingsPanel();
+    }
   });
   $('gallery-select-btn').addEventListener('click', function () {
     gallerySelectMode = !gallerySelectMode;
@@ -2399,12 +2414,17 @@
 
   $('design-editor-btn').addEventListener('click', function () {
     $('settings-panel').classList.remove('active');
+    reopenSettingsAfterScreen = true;
     showScreen('screen-design');
     switchDesignTab(designTab);
   });
   $('design-back-btn').addEventListener('click', function () {
     flushActiveEventSync();
     showScreen('screen-welcome');
+    if (reopenSettingsAfterScreen) {
+      reopenSettingsAfterScreen = false;
+      openSettingsPanel();
+    }
   });
   $('design-tab-strip').addEventListener('click', function () { switchDesignTab('strip'); });
   $('design-tab-wide').addEventListener('click', function () { switchDesignTab('wide'); });

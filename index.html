@@ -22,7 +22,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="assets/css/style.css?v=20260916b">
+<link rel="stylesheet" href="assets/css/style.css?v=20260916d">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Dancing+Script:wght@600&family=Playfair+Display:ital@1&family=Amatic+SC:wght@700&family=Caveat:wght@600&family=Cormorant+Garamond:ital@1&family=Suez+One&family=Frank+Ruhl+Libre:ital,wght@0,500;1,500&family=Bellefair&family=Miriam+Libre:wght@700&family=Secular+One&family=Heebo:wght@700&family=David+Libre:wght@700&family=Alex+Brush&family=Allura&family=Parisienne&family=Tangerine:wght@700&family=Pinyon+Script&family=Mrs+Saint+Delafield&family=Sacramento&family=Yellowtail&display=swap">
 <style>
   html, body {
@@ -281,9 +281,23 @@
     border-radius: 10px;
     padding: 8px 10px;
   }
-  .saved-event-row-top { display: flex; align-items: center; gap: 8px; }
-  .saved-event-row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
-  .saved-event-name { flex: 1; font-size: 13px; color: var(--color-text); }
+  .saved-event-row-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .saved-event-row-actions { display: flex; gap: 6px; }
+  .saved-event-row-actions .btn { flex: 1; }
+  .saved-event-name {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--color-text);
+    background: var(--color-surface-2);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 6px 10px;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .saved-event-name-input {
     flex: 1; font-size: 13px; color: var(--color-text);
     background: var(--color-surface); border: 1px solid var(--color-gold);
@@ -675,6 +689,14 @@
     text-align: center;
   }
   .fab-btn-danger { color: #e06a5f; }
+  /* GIF button reads as a wordmark instead of an icon - the 40px emoji
+     font-size above is far too big for plain text at this button size. */
+  #btn-gif {
+    font-family: var(--font-heading);
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: .02em;
+  }
   /* ---- Gallery screen ---- */
   #screen-gallery { }
   .gallery-grid {
@@ -1178,15 +1200,45 @@
     <img id="result-canvas-view" alt="התמונה שצולמה">
     <div class="result-fab-col">
       <div class="fab-item">
-        <button class="fab-btn" id="btn-share" aria-label="שיתוף">📤</button>
+        <button class="fab-btn" id="btn-share" aria-label="שיתוף">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 11v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8"/>
+            <path d="M12 15V3"/>
+            <path d="M7 8l5-5 5 5"/>
+          </svg>
+        </button>
         <span class="fab-label">שיתוף</span>
       </div>
       <div class="fab-item">
-        <button class="fab-btn" id="btn-qr" aria-label="QR לצילום">📱</button>
+        <button class="fab-btn" id="btn-qr" aria-label="QR לצילום">
+          <svg class="icon-qr" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+            <rect x="1" y="1" width="7" height="7"/>
+            <rect x="16" y="1" width="7" height="7"/>
+            <rect x="1" y="16" width="7" height="7"/>
+            <g fill="currentColor" stroke="none">
+              <rect x="3.5" y="3.5" width="2" height="2"/>
+              <rect x="18.5" y="3.5" width="2" height="2"/>
+              <rect x="3.5" y="18.5" width="2" height="2"/>
+              <rect x="10.5" y="1" width="2" height="2"/>
+              <rect x="13.5" y="4" width="2" height="2"/>
+              <rect x="10.5" y="6.5" width="2" height="2"/>
+              <rect x="1" y="10.5" width="2" height="2"/>
+              <rect x="4" y="13.5" width="2" height="2"/>
+              <rect x="10.5" y="10.5" width="3" height="3"/>
+              <rect x="15" y="10.5" width="2" height="2"/>
+              <rect x="19" y="10.5" width="2" height="2"/>
+              <rect x="15" y="14" width="2" height="2"/>
+              <rect x="19" y="14" width="4" height="2"/>
+              <rect x="15" y="18" width="2" height="2"/>
+              <rect x="10.5" y="16" width="2" height="6"/>
+              <rect x="19" y="19" width="4" height="4"/>
+            </g>
+          </svg>
+        </button>
         <span class="fab-label">QR לטלפון</span>
       </div>
       <div class="fab-item" id="gif-fab-item" style="display:none">
-        <button class="fab-btn" id="btn-gif" aria-label="GIF">🎞️</button>
+        <button class="fab-btn" id="btn-gif" aria-label="GIF">GIF</button>
         <span class="fab-label">GIF</span>
       </div>
     </div>
@@ -1234,7 +1286,7 @@
     <button class="btn btn-ghost" id="gallery-delete-all-btn">🗑️ מחק הכל</button>
   </div>
   <div class="gallery-toolbar" id="gallery-selection-toolbar" style="display:none">
-    <button class="btn btn-ghost" id="gallery-share-selected-btn">📤 שתף (0)</button>
+    <button class="btn btn-ghost" id="gallery-share-selected-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px" aria-hidden="true"><path d="M4 11v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8"/><path d="M12 15V3"/><path d="M7 8l5-5 5 5"/></svg> שתף (0)</button>
     <button class="btn btn-ghost" id="gallery-delete-selected-btn">🗑️ מחק (0)</button>
     <button class="btn btn-ghost" id="gallery-cancel-select-btn">ביטול</button>
   </div>
@@ -1292,8 +1344,33 @@
 <div id="gif-panel">
   <div id="gif-box">
     <img id="gif-view" alt="GIF">
-    <button class="btn" id="gif-share-btn">📤 שיתוף</button>
-    <button class="btn btn-ghost" id="gif-qr-btn">📱 QR</button>
+    <button class="btn" id="gif-share-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px" aria-hidden="true"><path d="M4 11v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8"/><path d="M12 15V3"/><path d="M7 8l5-5 5 5"/></svg> שיתוף</button>
+    <button class="btn btn-ghost" id="gif-qr-btn">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:-3px" aria-hidden="true">
+        <rect x="1" y="1" width="7" height="7"/>
+        <rect x="16" y="1" width="7" height="7"/>
+        <rect x="1" y="16" width="7" height="7"/>
+        <g fill="currentColor" stroke="none">
+          <rect x="3.5" y="3.5" width="2" height="2"/>
+          <rect x="18.5" y="3.5" width="2" height="2"/>
+          <rect x="3.5" y="18.5" width="2" height="2"/>
+          <rect x="10.5" y="1" width="2" height="2"/>
+          <rect x="13.5" y="4" width="2" height="2"/>
+          <rect x="10.5" y="6.5" width="2" height="2"/>
+          <rect x="1" y="10.5" width="2" height="2"/>
+          <rect x="4" y="13.5" width="2" height="2"/>
+          <rect x="10.5" y="10.5" width="3" height="3"/>
+          <rect x="15" y="10.5" width="2" height="2"/>
+          <rect x="19" y="10.5" width="2" height="2"/>
+          <rect x="15" y="14" width="2" height="2"/>
+          <rect x="19" y="14" width="4" height="2"/>
+          <rect x="15" y="18" width="2" height="2"/>
+          <rect x="10.5" y="16" width="2" height="6"/>
+          <rect x="19" y="19" width="4" height="4"/>
+        </g>
+      </svg>
+      QR
+    </button>
     <button class="btn btn-ghost" id="gif-close-btn">סגירה</button>
   </div>
 </div>
@@ -1303,6 +1380,6 @@
 <script src="assets/js/jszip.min.js"></script>
 <script src="assets/js/qrcode-generator.js"></script>
 <script src="assets/js/gifenc.js"></script>
-<script src="assets/js/app.js?v=20260916b"></script>
+<script src="assets/js/app.js?v=20260916d"></script>
 </body>
 </html>
