@@ -679,25 +679,57 @@
   var DEFAULT_STRIP_DESIGN = {
     sideTextW: 30, innerPad: 6, topMargin: 40, gap: 20, footerH: 250, cornerRadius: 7,
     layers: [
-      { id: 'title', type: 'text', auto: 'title', x: 0.5, y: 0.931, size: 46, color: '#2A2418', font: 'englishParisienne', rotation: 0, weight: '' },
-      { id: 'heart', type: 'emoji', text: '♥', x: 0.48, y: 0.951, size: 30, color: '#2A2418', rotation: 90 },
-      { id: 'date', type: 'text', auto: 'date', x: 0.5, y: 0.979, size: 40, color: '#2A2418', font: 'englishPinyon', rotation: 0, weight: 'bold' },
+      { id: 'title', type: 'text', auto: 'title', x: 0.5, y: 0.931, size: 46, color: '#000000', font: 'englishParisienne', rotation: 0, weight: '' },
+      { id: 'heart', type: 'emoji', text: '♥', x: 0.48, y: 0.951, size: 30, color: '#000000', rotation: 90 },
+      { id: 'date', type: 'text', auto: 'date', x: 0.5, y: 0.979, size: 40, color: '#000000', font: 'englishPinyon', rotation: 0, weight: 'bold' },
       { id: 'brand-ig-icon', type: 'image', src: 'assets/img/instagram-icon.png', x: 0.04, y: 0.855, size: 3.5, rotation: -90 },
-      { id: 'brand-handle', type: 'text', text: '#MEMORIES4U', x: 0.053, y: 0.813, size: 18, color: '#2A2418', font: 'sans', rotation: -90, weight: 'bold' },
-      { id: 'brand-phone', type: 'text', text: BRAND_PHONE, x: 0.053, y: 0.742, size: 18, color: '#2A2418', font: 'sans', rotation: -90, weight: 'bold' }
+      { id: 'brand-handle', type: 'text', text: '#MEMORIES4U', x: 0.053, y: 0.813, size: 18, color: '#000000', font: 'sans', rotation: -90, weight: 'bold' },
+      { id: 'brand-phone', type: 'text', text: BRAND_PHONE, x: 0.053, y: 0.742, size: 18, color: '#000000', font: 'sans', rotation: -90, weight: 'bold' }
     ]
   };
   var DEFAULT_WIDE_DESIGN = {
     marginTopPct: 0.044, marginSidePct: 0.036, footerPct: 0.24, cornerRadius: 8,
     layers: [
-      { id: 'title', type: 'text', auto: 'title', x: 0.502, y: 0.892, size: 5.2, color: '#2A2418', font: 'englishParisienne', rotation: 0, weight: '' },
-      { id: 'heart', type: 'emoji', text: '♥', x: 0.5, y: 0.925, size: 3, color: '#2A2418', rotation: 90 },
-      { id: 'date', type: 'text', auto: 'date', x: 0.5, y: 0.967, size: 4.8, color: '#2A2418', font: 'englishPinyon', rotation: 0, weight: '600' },
+      { id: 'title', type: 'text', auto: 'title', x: 0.502, y: 0.892, size: 5.2, color: '#000000', font: 'englishParisienne', rotation: 0, weight: '' },
+      { id: 'heart', type: 'emoji', text: '♥', x: 0.5, y: 0.925, size: 3, color: '#000000', rotation: 90 },
+      { id: 'date', type: 'text', auto: 'date', x: 0.5, y: 0.967, size: 4.8, color: '#000000', font: 'englishPinyon', rotation: 0, weight: '600' },
       { id: 'brand-ig-icon', type: 'image', src: 'assets/img/instagram-icon.png', x: 0.02, y: 0.805, size: 2.2, rotation: -90 },
-      { id: 'brand-handle', type: 'text', text: '#MEMORIES4U', x: 0.03, y: 0.76, size: 1.6, color: '#6B6559', font: 'sans', rotation: -90, weight: '600' },
-      { id: 'brand-phone', type: 'text', text: BRAND_PHONE, x: 0.03, y: 0.686, size: 1.6, color: '#6B6559', font: 'sans', rotation: -90, weight: '600' }
+      { id: 'brand-handle', type: 'text', text: '#MEMORIES4U', x: 0.03, y: 0.76, size: 1.6, color: '#000000', font: 'sans', rotation: -90, weight: '600' },
+      { id: 'brand-phone', type: 'text', text: BRAND_PHONE, x: 0.03, y: 0.686, size: 1.6, color: '#000000', font: 'sans', rotation: -90, weight: '600' }
     ]
   };
+
+  // One-time sync: everything tuned in today's session (logo/text
+  // position, margins, and the switch from weak brown/grey text to true
+  // black) landed in DEFAULT_STRIP_DESIGN/DEFAULT_WIDE_DESIGN above, but
+  // an event saved BEFORE today (like "Riki & David") keeps its own
+  // older design snapshot and wouldn't pick any of that up on its own -
+  // staff would have to reopen and redo every tweak by hand. This stamps
+  // today's finished defaults onto the currently active design AND every
+  // saved event's own snapshot, exactly once (guarded by
+  // DESIGN_SYNC_V1_DONE_KEY) so it can never run again and overwrite a
+  // deliberately different design someone sets up for a future event.
+  var DESIGN_SYNC_V1_DONE_KEY = 'm4u_design_sync_v1_done';
+  function syncSavedDesignsToTodaysDefaults() {
+    if (localStorage.getItem(DESIGN_SYNC_V1_DONE_KEY)) return;
+    function cloneStrip() { return JSON.parse(JSON.stringify(DEFAULT_STRIP_DESIGN)); }
+    function cloneWide() { return JSON.parse(JSON.stringify(DEFAULT_WIDE_DESIGN)); }
+    try {
+      if (localStorage.getItem(STRIP_DESIGN_KEY)) localStorage.setItem(STRIP_DESIGN_KEY, JSON.stringify(cloneStrip()));
+      if (localStorage.getItem(WIDE_DESIGN_KEY)) localStorage.setItem(WIDE_DESIGN_KEY, JSON.stringify(cloneWide()));
+    } catch (e) {}
+    try {
+      var events = getSavedEvents();
+      var anyChanged = false;
+      events.forEach(function (entry) {
+        if (entry.setup && entry.setup.stripDesign) { entry.setup.stripDesign = cloneStrip(); anyChanged = true; }
+        if (entry.setup && entry.setup.wideDesign) { entry.setup.wideDesign = cloneWide(); anyChanged = true; }
+      });
+      if (anyChanged) setSavedEvents(events);
+    } catch (e) {}
+    localStorage.setItem(DESIGN_SYNC_V1_DONE_KEY, '1');
+  }
+  syncSavedDesignsToTodaysDefaults();
 
   // Converts a design saved before the layer system existed (flat
   // titleX/heartSize/brandColor... fields) into the new layers array,
@@ -709,27 +741,27 @@
         id: 'title', type: 'text', auto: 'title', rotation: 0, weight: '',
         x: num('titleX', 0.5), y: num('titleY', isWide ? 0.855 : 0.911),
         size: isWide ? num('titleSizePct', 0.09) * 100 : num('titleSize', 52),
-        color: num('titleColor', '#2A2418'), font: num('titleFont', 'script1')
+        color: num('titleColor', '#000000'), font: num('titleFont', 'script1')
       },
       {
         id: 'heart', type: 'emoji', rotation: 0,
         text: num('emoji', '♥'),
         x: num('heartX', 0.5), y: num('heartY', isWide ? 0.898 : 0.936),
         size: isWide ? num('heartSizePct', 0.032) * 100 : num('heartSize', 20),
-        color: num('titleColor', '#2A2418')
+        color: num('titleColor', '#000000')
       },
       {
         id: 'date', type: 'text', auto: 'date', rotation: 0, weight: '600',
         x: num('dateX', 0.5), y: num('dateY', isWide ? 0.940 : 0.962),
         size: isWide ? num('dateSizePct', 0.038) * 100 : num('dateSize', 24),
-        color: num('dateColor', '#2A2418'), font: 'sans'
+        color: num('dateColor', '#000000'), font: 'sans'
       },
       {
         id: 'brand', type: 'text', rotation: 0, weight: '600',
         text: (isWide ? BRAND_HANDLE : BRAND_HANDLE.toUpperCase()) + '   ' + BRAND_PHONE,
         x: num('brandX', 0.5), y: num('brandY', isWide ? 0.983 : 0.978),
         size: isWide ? num('brandSizePct', 0.026) * 100 : num('brandSize', 15),
-        color: num('brandColor', isWide ? '#6B6559' : '#2A2418'), font: num('brandFont', 'sans')
+        color: num('brandColor', isWide ? '#000000' : '#000000'), font: num('brandFont', 'sans')
       }
     ];
   }
@@ -1332,8 +1364,16 @@
   // the gallery grid, so the back arrow returns to the right place
   // instead of always jumping to the camera.
   var resultReturnScreen = 'screen-camera';
+  // True only for the guest's own just-taken photo, whose raw frames
+  // (lastStripFrames/lastWideFrame) are still in memory - lets print
+  // re-render the photo against whatever design is live right now
+  // instead of the flattened image frozen at capture time. Never true
+  // for a photo reopened from the gallery (its raw frames are long gone,
+  // and lastStripFrames/lastWideFrame would belong to a different photo).
+  var currentPhotoIsLive = false;
   function openResult(blob, fromCapture, gifBlob) {
     resultReturnScreen = fromCapture ? 'screen-camera' : 'screen-gallery';
+    currentPhotoIsLive = !!fromCapture;
     currentBlob = blob;
     currentColorBlob = blob;
     isBw = false;
@@ -1628,26 +1668,53 @@
     });
   }
 
+  // Re-renders the currently viewed photo from its raw frame(s) against
+  // whatever design is saved right now, so a logo nudge or margin tweak
+  // made in the design editor actually shows up next time this photo is
+  // printed - printing used to just resend the flattened image frozen at
+  // the moment it was captured, silently ignoring every later edit.
+  // Only possible for the guest's own just-taken photo (currentPhotoIsLive)
+  // - an older gallery photo's raw frames aren't kept around.
+  function recomposeCurrentPhotoFromDesign() {
+    if (!currentPhotoIsLive) return Promise.resolve(currentBlob);
+    var canvas = captureMode === 'strip' ? composeStrip(lastStripFrames) : composeWide(lastWideFrame);
+    return canvasToBlob(canvas).then(function (colorBlob) {
+      currentColorBlob = colorBlob;
+      bwBlobCache = null;
+      return isBw ? toGrayscaleBlob(colorBlob) : colorBlob;
+    }).then(function (finalBlob) {
+      currentBlob = finalBlob;
+      if (isBw) bwBlobCache = finalBlob;
+      if (resultUrl) URL.revokeObjectURL(resultUrl);
+      resultUrl = URL.createObjectURL(finalBlob);
+      $('result-canvas-view').src = resultUrl;
+      $('result-gallery-thumb').src = resultUrl;
+      return finalBlob;
+    });
+  }
+
   $('btn-print').addEventListener('click', function () {
     if (!currentBlob) return;
-    var bridge = printBridgeUrl();
-    if (!bridge) {
-      $('print-img').src = resultUrl;
-      window.print();
-      return;
-    }
-    var copies = printCopies;
-    toast('שולח להדפסה (' + copies + ' עותקים)…');
-    var chain = Promise.resolve();
-    for (var i = 0; i < copies; i++) {
-      chain = chain.then(function () { return sendOnePrint(bridge); });
-    }
-    chain.then(function () {
-      toast('נשלח להדפסה');
-    }).catch(function () {
-      toast('ההדפסה הישירה נכשלה, פותח את תיבת ההדפסה הרגילה');
-      $('print-img').src = resultUrl;
-      window.print();
+    recomposeCurrentPhotoFromDesign().then(function () {
+      var bridge = printBridgeUrl();
+      if (!bridge) {
+        $('print-img').src = resultUrl;
+        window.print();
+        return;
+      }
+      var copies = printCopies;
+      toast('שולח להדפסה (' + copies + ' עותקים)…');
+      var chain = Promise.resolve();
+      for (var i = 0; i < copies; i++) {
+        chain = chain.then(function () { return sendOnePrint(bridge); });
+      }
+      chain.then(function () {
+        toast('נשלח להדפסה');
+      }).catch(function () {
+        toast('ההדפסה הישירה נכשלה, פותח את תיבת ההדפסה הרגילה');
+        $('print-img').src = resultUrl;
+        window.print();
+      });
     });
   });
 
@@ -1890,11 +1957,11 @@
     var design = currentDesign();
     var layer;
     if (type === 'emoji') {
-      layer = { id: newLayerId(), type: 'emoji', text: '♥', x: 0.5, y: 0.5, size: designTab === 'strip' ? 24 : 3, color: '#2A2418', rotation: 0 };
+      layer = { id: newLayerId(), type: 'emoji', text: '♥', x: 0.5, y: 0.5, size: designTab === 'strip' ? 24 : 3, color: '#000000', rotation: 0 };
     } else if (type === 'image') {
       layer = { id: newLayerId(), type: 'image', src: extra.src, x: 0.5, y: 0.5, size: 60, rotation: 0 };
     } else {
-      layer = { id: newLayerId(), type: 'text', text: 'טקסט חדש', x: 0.5, y: 0.5, size: designTab === 'strip' ? 28 : 3.5, color: '#2A2418', font: 'sans', rotation: 0, weight: '' };
+      layer = { id: newLayerId(), type: 'text', text: 'טקסט חדש', x: 0.5, y: 0.5, size: designTab === 'strip' ? 28 : 3.5, color: '#000000', font: 'sans', rotation: 0, weight: '' };
     }
     if (type === 'image') {
       // A logo/background image goes to the very back, so text and other
