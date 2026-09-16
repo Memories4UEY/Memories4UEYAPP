@@ -673,25 +673,25 @@
   var CUSTOM_DEFAULT_WIDE_KEY = 'm4u_custom_default_wide';
 
   var DEFAULT_STRIP_DESIGN = {
-    sideTextW: 22, innerPad: 14, topMargin: 48, gap: 22, footerH: 230, cornerRadius: 8,
+    sideTextW: 30, innerPad: 6, topMargin: 40, gap: 20, footerH: 250, cornerRadius: 7,
     layers: [
-      { id: 'title', type: 'text', auto: 'title', x: 0.5, y: 0.921, size: 52, color: '#2A2418', font: 'englishParisienne', rotation: 0, weight: '' },
-      { id: 'heart', type: 'emoji', text: '♥', x: 0.48, y: 0.946, size: 31, color: '#2A2418', rotation: 90 },
-      { id: 'date', type: 'text', auto: 'date', x: 0.5, y: 0.979, size: 24, color: '#2A2418', font: 'englishPinyon', rotation: 0, weight: 'bold' },
-      { id: 'brand-ig-icon', type: 'image', src: 'assets/img/instagram-icon.png', x: 0.035, y: 0.862, size: 4.5, rotation: -90 },
-      { id: 'brand-handle', type: 'text', text: '#MEMORIES4U', x: 0.053, y: 0.82, size: 15, color: '#2A2418', font: 'sans', rotation: -90, weight: 'bold' },
-      { id: 'brand-phone', type: 'text', text: BRAND_PHONE, x: 0.053, y: 0.752, size: 15, color: '#2A2418', font: 'sans', rotation: -90, weight: 'bold' }
+      { id: 'title', type: 'text', auto: 'title', x: 0.5, y: 0.931, size: 46, color: '#2A2418', font: 'englishParisienne', rotation: 0, weight: '' },
+      { id: 'heart', type: 'emoji', text: '♥', x: 0.48, y: 0.951, size: 30, color: '#2A2418', rotation: 90 },
+      { id: 'date', type: 'text', auto: 'date', x: 0.5, y: 0.979, size: 40, color: '#2A2418', font: 'englishPinyon', rotation: 0, weight: 'bold' },
+      { id: 'brand-ig-icon', type: 'image', src: 'assets/img/instagram-icon.png', x: 0.04, y: 0.855, size: 3.5, rotation: -90 },
+      { id: 'brand-handle', type: 'text', text: '#MEMORIES4U', x: 0.053, y: 0.813, size: 18, color: '#2A2418', font: 'sans', rotation: -90, weight: 'bold' },
+      { id: 'brand-phone', type: 'text', text: BRAND_PHONE, x: 0.053, y: 0.742, size: 18, color: '#2A2418', font: 'sans', rotation: -90, weight: 'bold' }
     ]
   };
   var DEFAULT_WIDE_DESIGN = {
-    marginTopPct: 0.045, marginSidePct: 0.045, footerPct: 0.2, cornerRadius: 0,
+    marginTopPct: 0.044, marginSidePct: 0.036, footerPct: 0.24, cornerRadius: 8,
     layers: [
-      { id: 'title', type: 'text', auto: 'title', x: 0.5, y: 0.855, size: 5.8, color: '#2A2418', font: 'englishParisienne', rotation: 0, weight: '' },
-      { id: 'heart', type: 'emoji', text: '♥', x: 0.5, y: 0.898, size: 3.2, color: '#2A2418', rotation: 0 },
-      { id: 'date', type: 'text', auto: 'date', x: 0.5, y: 0.940, size: 3.8, color: '#2A2418', font: 'sans', rotation: 0, weight: '600' },
-      { id: 'brand-ig-icon', type: 'image', src: 'assets/img/instagram-icon.png', x: 0.045, y: 0.60, size: 2.2, rotation: -90 },
-      { id: 'brand-handle', type: 'text', text: '#MEMORIES4U', x: 0.045, y: 0.44, size: 2.6, color: '#6B6559', font: 'sans', rotation: -90, weight: '600' },
-      { id: 'brand-phone', type: 'text', text: BRAND_PHONE, x: 0.045, y: 0.30, size: 2.6, color: '#6B6559', font: 'sans', rotation: -90, weight: '600' }
+      { id: 'title', type: 'text', auto: 'title', x: 0.502, y: 0.892, size: 5.2, color: '#2A2418', font: 'englishParisienne', rotation: 0, weight: '' },
+      { id: 'heart', type: 'emoji', text: '♥', x: 0.5, y: 0.925, size: 3, color: '#2A2418', rotation: 90 },
+      { id: 'date', type: 'text', auto: 'date', x: 0.5, y: 0.967, size: 4.8, color: '#2A2418', font: 'englishPinyon', rotation: 0, weight: '600' },
+      { id: 'brand-ig-icon', type: 'image', src: 'assets/img/instagram-icon.png', x: 0.02, y: 0.805, size: 2.2, rotation: -90 },
+      { id: 'brand-handle', type: 'text', text: '#MEMORIES4U', x: 0.03, y: 0.76, size: 1.6, color: '#6B6559', font: 'sans', rotation: -90, weight: '600' },
+      { id: 'brand-phone', type: 'text', text: BRAND_PHONE, x: 0.03, y: 0.686, size: 1.6, color: '#6B6559', font: 'sans', rotation: -90, weight: '600' }
     ]
   };
 
@@ -1322,7 +1322,12 @@
   // ---------- Result screen ----------
   var resultUrl = null;
   var resultGifUrl = null;
+  // Remembers whether this photo was opened from a fresh capture or from
+  // the gallery grid, so the back arrow returns to the right place
+  // instead of always jumping to the camera.
+  var resultReturnScreen = 'screen-camera';
   function openResult(blob, fromCapture) {
+    resultReturnScreen = fromCapture ? 'screen-camera' : 'screen-gallery';
     currentBlob = blob;
     currentColorBlob = blob;
     isBw = false;
@@ -1335,7 +1340,7 @@
     // Deleting is an admin-only action - even when a guest taps into an
     // individual photo from the (now guest-accessible) full gallery,
     // never show it there, only when staff reached the gallery via ⚙.
-    $('btn-delete').style.display = (fromCapture || galleryReturnScreen === 'screen-result') ? 'none' : 'block';
+    $('delete-fab-item').style.display = (fromCapture || galleryReturnScreen === 'screen-result') ? 'none' : '';
     if (!fromCapture) {
       // Viewing an old gallery photo - no freshly-made GIF goes with it.
       currentGifBlob = null;
@@ -1356,8 +1361,8 @@
   }
 
   $('result-back-btn').addEventListener('click', function () {
-    showScreen('screen-camera');
-    startCamera();
+    showScreen(resultReturnScreen);
+    if (resultReturnScreen === 'screen-camera') startCamera();
   });
   $('btn-retake').addEventListener('click', function () {
     showScreen('screen-camera');
@@ -1455,11 +1460,15 @@
   });
 
   // ---------- QR share ----------
-  // Uploads the photo to the print-bridge running on the event laptop,
-  // which briefly hosts it so the QR code has a real URL a guest's own
-  // phone can open. Entries older than 2 hours are pruned automatically.
-  $('btn-qr').addEventListener('click', function () {
-    if (!currentBlob) return;
+  // Uploads a photo or GIF to the print-bridge running on the event
+  // laptop, which briefly hosts it so the QR code has a real URL a
+  // guest's own phone can open. Entries older than 2 hours are pruned
+  // automatically. Shared by both the still-photo QR button and the
+  // GIF one - the blob's own type (image/jpeg vs image/gif) is sent
+  // as-is so the guest's phone gets it back correctly labeled instead
+  // of every upload being hardcoded to image/jpeg.
+  function showQrFor(blob) {
+    if (!blob) return;
     $('qr-panel').classList.add('active');
     $('qr-render').innerHTML = '';
     var base = bridgeBase();
@@ -1467,11 +1476,11 @@
       $('qr-status').textContent = 'צריך קודם להגדיר את כתובת הגשר ב-⚙ (אותה כתובת של ההדפסה).';
       return;
     }
-    $('qr-status').textContent = 'מעלים את התמונה…';
+    $('qr-status').textContent = 'מעלים…';
     fetch(base + '/upload', {
       method: 'POST',
-      headers: { 'Content-Type': 'image/jpeg', 'X-Booth-Token': BOOTH_TOKEN },
-      body: currentBlob
+      headers: { 'Content-Type': blob.type || 'image/jpeg', 'X-Booth-Token': BOOTH_TOKEN },
+      body: blob
     }).then(function (res) {
       if (!res.ok) throw new Error('upload failed: ' + res.status);
       return res.json();
@@ -1481,11 +1490,13 @@
       qr.addData(url);
       qr.make();
       $('qr-render').innerHTML = qr.createSvgTag({ cellSize: 5, margin: 2 });
-      $('qr-status').textContent = 'סרקו עם הטלפון כדי לשמור את התמונה';
+      $('qr-status').textContent = 'סרקו עם הטלפון כדי לשמור';
     }).catch(function () {
       $('qr-status').textContent = 'שיתוף ה-QR לא זמין כרגע. אפשר לשתף ישירות מהכפתור "שיתוף".';
     });
-  });
+  }
+  $('btn-qr').addEventListener('click', function () { showQrFor(currentBlob); });
+  $('gif-qr-btn').addEventListener('click', function () { showQrFor(currentGifBlob); });
   $('qr-close-btn').addEventListener('click', function () {
     $('qr-panel').classList.remove('active');
   });

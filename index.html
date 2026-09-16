@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
+<!-- Hints the browser to always re-check for a fresh index.html instead of
+     serving a stale cached copy - matters most for the iOS "Add to Home
+     Screen" standalone app, which otherwise can keep running old code for
+     a while after a new version is deployed. The app.js/style.css links
+     below carry their own ?v= cache-busting query string for the same
+     reason - bump it whenever those files change. -->
+<meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta name="theme-color" content="#0C0C0E">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -15,7 +22,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="assets/css/style.css">
+<link rel="stylesheet" href="assets/css/style.css?v=20260916">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Dancing+Script:wght@600&family=Playfair+Display:ital@1&family=Amatic+SC:wght@700&family=Caveat:wght@600&family=Cormorant+Garamond:ital@1&family=Suez+One&family=Frank+Ruhl+Libre:ital,wght@0,500;1,500&family=Bellefair&family=Miriam+Libre:wght@700&family=Secular+One&family=Heebo:wght@700&family=David+Libre:wght@700&family=Alex+Brush&family=Allura&family=Parisienne&family=Tangerine:wght@700&family=Pinyon+Script&family=Mrs+Saint+Delafield&family=Sacramento&family=Yellowtail&display=swap">
 <style>
   html, body {
@@ -380,8 +387,15 @@
     cursor: pointer;
   }
   .icon-btn-spacer { width: 40px; height: 40px; flex-shrink: 0; }
-  .topbar-actions { display: flex; align-items: center; gap: 8px; }
+  .topbar-actions { display: flex; align-items: flex-start; gap: 8px; }
   .topbar-actions .icon-btn:disabled { opacity: .35; cursor: default; }
+  .icon-btn-group { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+  .icon-btn-group .icon-btn-label {
+    font-size: 9px;
+    color: var(--color-text-muted);
+    line-height: 1;
+    white-space: nowrap;
+  }
   .topbar .camera-last-photo-btn { width: 64px; height: 64px; padding: 0; overflow: hidden; }
   .camera-last-photo-btn img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
   .shot-thumbs {
@@ -657,17 +671,7 @@
     min-width: 12px;
     text-align: center;
   }
-  .result-actions {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 10px;
-    width: 100%;
-    padding: 14px 14px calc(14px + env(safe-area-inset-bottom));
-    background: var(--color-bg-alt);
-    border-top: 1px solid var(--color-border);
-  }
-  .result-actions .btn { display: flex; align-items: center; justify-content: center; gap: 8px; }
-  .result-actions .full { grid-column: 1 / -1; }
+  .fab-btn-danger { color: #e06a5f; }
   /* ---- Gallery screen ---- */
   #screen-gallery { }
   .gallery-grid {
@@ -1183,10 +1187,11 @@
           <button type="button" id="copies-plus" aria-label="יותר עותקים">+</button>
         </div>
       </div>
+      <div class="fab-item" id="delete-fab-item" style="display:none">
+        <button class="fab-btn fab-btn-danger" id="btn-delete" aria-label="מחיקת התמונה">🗑</button>
+        <span class="fab-label">מחיקה</span>
+      </div>
     </div>
-  </div>
-  <div class="result-actions">
-    <button class="btn btn-ghost full" id="btn-delete" style="display:none">🗑 מחיקת התמונה</button>
   </div>
 </div>
 
@@ -1212,13 +1217,28 @@
 <!-- ============ DESIGN EDITOR ============ -->
 <div id="screen-design" class="screen">
   <div class="topbar">
-    <button class="icon-btn" id="design-back-btn" aria-label="חזרה">‹</button>
+    <div class="icon-btn-group">
+      <button class="icon-btn" id="design-back-btn" aria-label="חזרה">‹</button>
+      <span class="icon-btn-label">חזור</span>
+    </div>
     <span class="brand">עורך עיצוב</span>
     <div class="topbar-actions">
-      <button class="icon-btn" id="design-undo-btn" aria-label="בטל פעולה אחרונה" title="בטל את הפעולה האחרונה">↩</button>
-      <button class="icon-btn" id="design-save-event-btn" aria-label="שמירה לאירוע" title="שמירת העיצוב הנוכחי לאירוע הפעיל">💾</button>
-      <button class="icon-btn" id="design-set-default-btn" aria-label="קביעת ברירת מחדל" title="קביעת העיצוב הנוכחי כברירת המחדל של הלשונית הזו">📌</button>
-      <button class="icon-btn" id="design-reset-btn" aria-label="איפוס" title="איפוס לברירת מחדל">↺</button>
+      <div class="icon-btn-group">
+        <button class="icon-btn" id="design-undo-btn" aria-label="בטל פעולה אחרונה" title="בטל את הפעולה האחרונה">↩</button>
+        <span class="icon-btn-label">בטל</span>
+      </div>
+      <div class="icon-btn-group">
+        <button class="icon-btn" id="design-save-event-btn" aria-label="שמירה לאירוע" title="שמירת העיצוב הנוכחי לאירוע הפעיל">💾</button>
+        <span class="icon-btn-label">שמור</span>
+      </div>
+      <div class="icon-btn-group">
+        <button class="icon-btn" id="design-set-default-btn" aria-label="קביעת ברירת מחדל" title="קביעת העיצוב הנוכחי כברירת המחדל של הלשונית הזו">📌</button>
+        <span class="icon-btn-label">ברירת מחדל</span>
+      </div>
+      <div class="icon-btn-group">
+        <button class="icon-btn" id="design-reset-btn" aria-label="איפוס" title="איפוס לברירת מחדל">↺</button>
+        <span class="icon-btn-label">איפוס</span>
+      </div>
     </div>
   </div>
   <div class="design-tabs">
@@ -1246,6 +1266,7 @@
   <div id="gif-box">
     <img id="gif-view" alt="GIF">
     <button class="btn" id="gif-share-btn">📤 שיתוף</button>
+    <button class="btn btn-ghost" id="gif-qr-btn">📱 QR</button>
     <button class="btn btn-ghost" id="gif-close-btn">סגירה</button>
   </div>
 </div>
@@ -1255,6 +1276,6 @@
 <script src="assets/js/jszip.min.js"></script>
 <script src="assets/js/qrcode-generator.js"></script>
 <script src="assets/js/gifenc.js"></script>
-<script src="assets/js/app.js"></script>
+<script src="assets/js/app.js?v=20260916"></script>
 </body>
 </html>
