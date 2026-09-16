@@ -22,7 +22,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="assets/css/style.css?v=20260916d">
+<link rel="stylesheet" href="assets/css/style.css?v=20260916j">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Dancing+Script:wght@600&family=Playfair+Display:ital@1&family=Amatic+SC:wght@700&family=Caveat:wght@600&family=Cormorant+Garamond:ital@1&family=Suez+One&family=Frank+Ruhl+Libre:ital,wght@0,500;1,500&family=Bellefair&family=Miriam+Libre:wght@700&family=Secular+One&family=Heebo:wght@700&family=David+Libre:wght@700&family=Alex+Brush&family=Allura&family=Parisienne&family=Tangerine:wght@700&family=Pinyon+Script&family=Mrs+Saint+Delafield&family=Sacramento&family=Yellowtail&display=swap">
 <style>
   html, body {
@@ -247,6 +247,21 @@
     font-size: 18px;
     margin: 0 0 6px;
   }
+  .settings-title-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .settings-title-row h2 { margin: 0; }
+  .settings-title-row .btn { padding: 8px 10px; font-size: 12px; white-space: nowrap; }
+  .active-event-label-big {
+    font-family: var(--font-heading);
+    color: var(--color-gold);
+    font-size: 17px;
+    font-weight: 700;
+    text-align: center;
+    background: var(--color-surface-2);
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    padding: 10px;
+    margin: 4px 0;
+  }
   .settings-label {
     font-size: 13px;
     color: var(--color-text-muted);
@@ -282,34 +297,39 @@
     padding: 8px 10px;
   }
   .saved-event-row-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .saved-event-row-actions { display: flex; gap: 6px; }
-  .saved-event-row-actions .btn { flex: 1; }
+  .saved-event-row-actions { display: flex; gap: 3px; }
+  .saved-event-row-actions .btn { flex: 1; min-width: 0; }
+  .saved-event-row-actions .btn[disabled] { opacity: .35; }
   .saved-event-name {
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 700;
     color: var(--color-text);
     background: var(--color-surface-2);
     border: 1px solid var(--color-border);
     border-radius: 8px;
-    padding: 6px 10px;
-    flex: 1;
+    padding: 8px 10px;
+    width: 100%;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    text-align: center;
+    box-sizing: border-box;
   }
   .saved-event-name-input {
     flex: 1; font-size: 13px; color: var(--color-text);
     background: var(--color-surface); border: 1px solid var(--color-gold);
     border-radius: 6px; padding: 4px 8px; min-width: 0;
   }
-  .saved-event-row .btn { padding: 6px 10px; font-size: 12px; }
+  .saved-event-row .btn { padding: 6px 2px; font-size: 15px; }
   .saved-event-row .btn-icon-label {
     display: block;
-    font-size: 8px;
+    font-size: 6.5px;
     margin-top: 2px;
     color: var(--color-text-muted);
-    white-space: nowrap;
+    white-space: normal;
+    line-height: 1.15;
+    overflow-wrap: break-word;
   }
 
   /* ---- Generic small modal (event info / print bridge address) ----
@@ -1045,7 +1065,10 @@
 <!-- ============ EVENT SETTINGS PANEL (staff only) ============ -->
 <div id="settings-panel">
   <div id="settings-box">
-    <h2>הגדרות אירוע</h2>
+    <div class="settings-title-row">
+      <h2>הגדרות אירוע</h2>
+      <button type="button" class="btn btn-ghost" id="archived-events-btn">📁 אירועים שמורים</button>
+    </div>
     <label class="settings-label">רקע למסך הפתיחה</label>
     <input type="file" id="welcome-bg-input" accept="image/*">
     <button class="btn btn-ghost" id="welcome-bg-clear-btn">איפוס רקע לברירת מחדל</button>
@@ -1072,15 +1095,36 @@
       <button type="button" class="btn btn-ghost" id="print-settings-btn">🖨️ כתובת הדפסה</button>
       <button type="button" class="btn btn-ghost" id="open-gallery-btn">🖼 גלריה</button>
     </div>
-    <label class="settings-label">אירועים שמורים (שם, תאריך, רקע ועיצוב) - לכל אירוע שמור יש אלבום תמונות נפרד משלו. ליד כל אירוע: טעינה, גיבוי תמונות, ומחיקה.</label>
-    <p id="active-event-label" class="design-hint"></p>
-    <button type="button" class="btn btn-ghost" id="unassigned-event-btn">📁 תמונות ללא אירוע ספציפי</button>
+    <p id="active-event-label" class="active-event-label-big"></p>
     <div class="save-event-row">
       <input type="text" id="save-event-name-input" placeholder="שם לשמירה, למשל דויד ושושנה">
       <button class="btn btn-ghost" id="save-event-btn">💾 שמירה</button>
     </div>
     <div id="saved-events-list"></div>
     <button class="btn" id="settings-close-btn">סגירה</button>
+  </div>
+</div>
+
+<!-- ============ ARCHIVED EVENTS FOLDER ============ -->
+<div id="archive-panel" class="modal-overlay">
+  <div class="modal-box">
+    <h2>📁 אירועים שמורים בתיקייה</h2>
+    <div id="archived-events-list"></div>
+    <div class="modal-actions">
+      <button class="btn" id="archive-close-btn">סגירה</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ "NO ACTIVE EVENT" BLOCK ============ -->
+<div id="no-event-panel" class="modal-overlay">
+  <div class="modal-box">
+    <h2>צריך לטעון אירוע</h2>
+    <p class="design-hint">כדי להתחיל לצלם צריך קודם לטעון או ליצור אירוע דרך ⚙️ הגדרות.</p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="no-event-cancel-btn">סגירה</button>
+      <button class="btn" id="no-event-open-settings-btn">⚙️ פתיחת הגדרות</button>
+    </div>
   </div>
 </div>
 
@@ -1380,6 +1424,6 @@
 <script src="assets/js/jszip.min.js"></script>
 <script src="assets/js/qrcode-generator.js"></script>
 <script src="assets/js/gifenc.js"></script>
-<script src="assets/js/app.js?v=20260916h"></script>
+<script src="assets/js/app.js?v=20260916k"></script>
 </body>
 </html>

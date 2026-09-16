@@ -117,7 +117,13 @@
   // screen-ready into actual settings (event info, print, gallery,
   // design editor) - that's the only gate a guest holding the iPad
   // could otherwise use to wander into staff controls.
-  function openAdminModal() {
+  // What runs after a correct password - defaults to just landing back on
+  // screen-welcome (the ready-back-btn path below), but a caller can pass
+  // its own follow-up (e.g. the "no event loaded" prompt wants settings
+  // to actually open, not just land on the welcome screen and stop).
+  var adminModalOnSuccess = null;
+  function openAdminModal(onSuccess) {
+    adminModalOnSuccess = onSuccess || function () { showScreen('screen-welcome'); };
     $('admin-password-input').value = '';
     $('admin-password-error').textContent = '';
     $('admin-modal').classList.add('active');
@@ -131,7 +137,9 @@
     sha256Hex(val).then(function (hex) {
       if (hex === PASSWORD_HASH) {
         closeAdminModal();
-        showScreen('screen-welcome');
+        var onSuccess = adminModalOnSuccess;
+        adminModalOnSuccess = null;
+        if (onSuccess) onSuccess();
       } else {
         $('admin-password-error').textContent = 'סיסמה שגויה';
         $('admin-password-input').value = '';
@@ -142,12 +150,37 @@
     stopCamera();
     showScreen('screen-ready');
   });
-  $('ready-back-btn').addEventListener('click', openAdminModal);
+  $('ready-back-btn').addEventListener('click', function () { openAdminModal(); });
   $('admin-modal-cancel').addEventListener('click', closeAdminModal);
   $('admin-modal-confirm').addEventListener('click', submitAdminModal);
   $('admin-password-input').addEventListener('keydown', function (e) {
     if (e.key === 'Enter') submitAdminModal();
   });
+
+  // A Home Screen web app can resume a SUSPENDED session when reopened
+  // instead of actually reloading anything - in that case no network
+  // request happens at all, so staff can close/reopen as many times as
+  // they like with nothing changing, because the exact same already-
+  // running old JS just keeps going (this is why the ?v= cache-busting
+  // on the <script>/<link> tags in index.html alone isn't always enough
+  // - it only helps once a real navigation actually happens). This
+  // checks, once per load, whether index.html on the server references a
+  // newer app.js than the one actually running here, and if so forces a
+  // genuine fresh navigation (not just reload(), which can itself be
+  // served from the same stale state) - so an update reaches the device
+  // on its own the next time staff open the app, with no dependence on
+  // getting a close/force-quit gesture exactly right.
+  var APP_VERSION = '20260916k';
+  (function checkForFreshVersion() {
+    if (/[?&]_fresh=/.test(location.search)) return;
+    fetch('index.html', { cache: 'no-store' }).then(function (res) { return res.text(); }).then(function (html) {
+      var m = html.match(/app\.js\?v=([A-Za-z0-9]+)/);
+      if (m && m[1] && m[1] !== APP_VERSION) {
+        var sep = location.search ? '&' : '?';
+        location.replace(location.pathname + location.search + sep + '_fresh=' + Date.now());
+      }
+    }).catch(function () {});
+  })();
 
   // Asks the browser to mark this site's storage as "persistent" - i.e.
   // exempt from the automatic cleanup iOS/Safari can otherwise do to
@@ -298,7 +331,14 @@
   }
   applyWelcomeBg();
 
+  // Shooting without an event loaded used to fall into an unlabeled
+  // "general album" nobody could reliably find again later - blocked now,
+  // staff has to load or create a named event first.
   $('welcome-start-btn').addEventListener('click', function () {
+    if (!getActiveEventName()) {
+      $('no-event-panel').classList.add('active');
+      return;
+    }
     showScreen('screen-ready');
   });
   $('ready-start-btn').addEventListener('click', function () {
@@ -311,6 +351,27 @@
     setActiveEventName(getActiveEventName());
   }
   $('welcome-settings-btn').addEventListener('click', openSettingsPanel);
+  $('no-event-cancel-btn').addEventListener('click', function () {
+    $('no-event-panel').classList.remove('active');
+  });
+  $('no-event-open-settings-btn').addEventListener('click', function () {
+    $('no-event-panel').classList.remove('active');
+    // Same password gate as the camera screen's own way into settings -
+    // this prompt can be reached by anyone tapping "התחילו לצלם" (a guest
+    // included, if staff forgot to load an event first), so it needs the
+    // same protection, not a free pass straight into staff controls.
+    openAdminModal(function () {
+      showScreen('screen-welcome');
+      openSettingsPanel();
+    });
+  });
+  $('archived-events-btn').addEventListener('click', function () {
+    renderArchivedEventsList();
+    $('archive-panel').classList.add('active');
+  });
+  $('archive-close-btn').addEventListener('click', function () {
+    $('archive-panel').classList.remove('active');
+  });
   $('settings-close-btn').addEventListener('click', function () {
     $('settings-panel').classList.remove('active');
     flushActiveEventSync();
@@ -342,19 +403,26 @@
   function setActiveEventName(name) {
     localStorage.setItem(ACTIVE_EVENT_KEY, name || '');
     var label = $('active-event-label');
-    if (label) label.textContent = name ? ('אירוע פעיל כרגע: ' + name) : 'אין אירוע שמור פעיל (אלבום כללי)';
+    if (label) label.textContent = name ? ('📌 אירוע פעיל כרגע: ' + name) : 'לא נטען אירוע - צריך לטעון אחד';
   }
 
   // ---------- Saved events (prepare several events in advance, switch
   // between them) - snapshots event title/date, capture mode, welcome
   // background and both designs under a name, loadable any time. ----------
   var SAVED_EVENTS_KEY = 'm4u_saved_events';
+  // Keeps the main "אירועים שמורים" list from growing forever - staff
+  // saving a 6th+ event doesn't fail, it's just parked in the "📁 אירועים
+  // שמורים בתיקייה" folder automatically instead (entry.archived: true),
+  // reachable from the button next to the "הגדרות אירוע" title.
+  var MAX_MAIN_EVENTS = 5;
   function getSavedEvents() {
     try { return JSON.parse(localStorage.getItem(SAVED_EVENTS_KEY)) || []; } catch (e) { return []; }
   }
   function setSavedEvents(list) {
     localStorage.setItem(SAVED_EVENTS_KEY, JSON.stringify(list));
   }
+  function getMainSavedEvents(list) { return (list || getSavedEvents()).filter(function (e) { return !e.archived; }); }
+  function getArchivedSavedEvents(list) { return (list || getSavedEvents()).filter(function (e) { return !!e.archived; }); }
   function snapshotCurrentSetup() {
     return {
       eventInfo: getEventInfo(),
@@ -379,8 +447,166 @@
     if (setup.wideDesign) saveDesign(WIDE_DESIGN_KEY, setup.wideDesign);
     setActiveEventName(name);
   }
+  function findEventIndexByName(list, name) {
+    for (var i = 0; i < list.length; i++) { if (list[i].name === name) return i; }
+    return -1;
+  }
+  // Shared by the main "אירועים שמורים" list and the "📁 אירועים שמורים
+  // בתיקייה" archive folder - same row, same actions (rename/load/copy/
+  // delete), except the one "move" button flips direction depending on
+  // which list this row lives in right now.
+  function buildSavedEventRow(entry, archived) {
+    var row = document.createElement('div');
+    row.className = 'saved-event-row';
+    var topRow = document.createElement('div');
+    topRow.className = 'saved-event-row-top';
+    var actionsRow = document.createElement('div');
+    actionsRow.className = 'saved-event-row-actions';
+    var name = document.createElement('span');
+    name.className = 'saved-event-name';
+    name.textContent = entry.name;
+
+    function refreshBoth() {
+      renderSavedEventsList();
+      renderArchivedEventsList();
+    }
+
+    var renameBtn = document.createElement('button');
+    renameBtn.type = 'button';
+    renameBtn.className = 'btn btn-ghost';
+    renameBtn.innerHTML = '✏️<span class="btn-icon-label">שינוי שם</span>';
+    renameBtn.title = 'שינוי שם האירוע';
+    renameBtn.addEventListener('click', function () {
+      // Inline edit instead of window.prompt() - same reason as the
+      // event-info/print-bridge modals: a blocking native dialog was
+      // found to freeze the live camera on iOS.
+      var input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'saved-event-name-input';
+      input.value = entry.name;
+      topRow.replaceChild(input, name);
+      // The whole actions row (rename included) is squeezed for space -
+      // hiding it while editing gives the input the whole row. It comes
+      // back on its own since commit/cancel both end in a full re-render.
+      actionsRow.style.display = 'none';
+      input.focus();
+      input.select();
+      // On iPad the on-screen keyboard covers roughly the bottom half
+      // of the screen once it slides up, and this row can end up
+      // hidden behind it since nothing here scrolls automatically -
+      // the delay lets the keyboard's slide-in animation finish before
+      // scrolling, otherwise the browser measures the row's position
+      // before the viewport has actually shrunk.
+      setTimeout(function () {
+        input.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }, 300);
+      var done = false;
+      function commit() {
+        if (done) return;
+        done = true;
+        var newName = input.value.trim();
+        if (!newName || newName === entry.name) { refreshBoth(); return; }
+        var list2 = getSavedEvents();
+        var clash = list2.some(function (e) { return e.name !== entry.name && e.name === newName; });
+        if (clash) { toast('כבר קיים אירוע בשם הזה'); refreshBoth(); return; }
+        var idx = findEventIndexByName(list2, entry.name);
+        if (idx === -1) { refreshBoth(); return; }
+        var wasActive = getActiveEventName() === entry.name;
+        list2[idx].name = newName;
+        setSavedEvents(list2);
+        if (wasActive) setActiveEventName(newName);
+        refreshBoth();
+        toast('שם האירוע עודכן');
+      }
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); commit(); }
+        else if (e.key === 'Escape') { done = true; refreshBoth(); }
+      });
+      input.addEventListener('blur', commit);
+    });
+
+    var loadBtn = document.createElement('button');
+    loadBtn.type = 'button';
+    loadBtn.className = 'btn btn-ghost';
+    loadBtn.innerHTML = '📂<span class="btn-icon-label">טעינה</span>';
+    loadBtn.addEventListener('click', function () {
+      applySavedSetup(entry.setup, entry.name);
+      renderGalleryGrid();
+      toast('האירוע "' + entry.name + '" נטען');
+    });
+
+    var copyBtn = document.createElement('button');
+    copyBtn.type = 'button';
+    copyBtn.className = 'btn btn-ghost';
+    copyBtn.innerHTML = '📋<span class="btn-icon-label">שכפול</span>';
+    copyBtn.title = 'שכפול הגדרות האירוע הזה (עיצוב, רקע, מצב צילום) לאירוע חדש - בלי לשייך תמונות אליו עדיין';
+    copyBtn.addEventListener('click', function () {
+      // Copies the design/background/capture-mode settings only - does
+      // NOT switch the active event (so nothing gets photo-tagged to
+      // the source event by mistake). Staff just edits the name/date
+      // and taps "שמירה" under a new name to finish setting up the copy.
+      applySavedSetup(entry.setup, getActiveEventName());
+      $('save-event-name-input').value = entry.name + ' - עותק';
+      $('save-event-name-input').focus();
+      toast('ההגדרות של "' + entry.name + '" הועתקו - עדכני שם/תאריך ולחצי שמירה');
+    });
+
+    var moveBtn = document.createElement('button');
+    moveBtn.type = 'button';
+    moveBtn.className = 'btn btn-ghost';
+    if (archived) {
+      var canMoveBack = getMainSavedEvents().length < MAX_MAIN_EVENTS;
+      moveBtn.innerHTML = '📤<span class="btn-icon-label">לרשימה</span>';
+      moveBtn.title = canMoveBack
+        ? 'העברת האירוע חזרה לרשימת האירועים השמורים'
+        : 'אין מקום ברשימה הראשית (עד ' + MAX_MAIN_EVENTS + ' אירועים) - מחקו או העבירו אירוע אחר לתיקייה קודם';
+      moveBtn.disabled = !canMoveBack;
+      moveBtn.addEventListener('click', function () {
+        var list2 = getSavedEvents();
+        if (getMainSavedEvents(list2).length >= MAX_MAIN_EVENTS) { toast('אין מקום ברשימה הראשית'); return; }
+        var idx = findEventIndexByName(list2, entry.name);
+        if (idx === -1) return;
+        list2[idx].archived = false;
+        setSavedEvents(list2);
+        refreshBoth();
+        toast('האירוע "' + entry.name + '" הועבר לאירועים שמורים');
+      });
+    } else {
+      moveBtn.innerHTML = '📁<span class="btn-icon-label">לתיקייה</span>';
+      moveBtn.title = 'העברת האירוע (עם כל התוכן שלו) לתיקיית "אירועים שמורים"';
+      moveBtn.addEventListener('click', function () {
+        var list2 = getSavedEvents();
+        var idx = findEventIndexByName(list2, entry.name);
+        if (idx === -1) return;
+        list2[idx].archived = true;
+        setSavedEvents(list2);
+        refreshBoth();
+        toast('האירוע "' + entry.name + '" הועבר לתיקייה');
+      });
+    }
+
+    var delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'btn btn-ghost';
+    delBtn.innerHTML = '🗑️<span class="btn-icon-label">מחיקה</span>';
+    delBtn.addEventListener('click', function () {
+      setSavedEvents(getSavedEvents().filter(function (e) { return e.name !== entry.name; }));
+      if (getActiveEventName() === entry.name) setActiveEventName('');
+      refreshBoth();
+    });
+
+    topRow.appendChild(name);
+    actionsRow.appendChild(renameBtn);
+    actionsRow.appendChild(loadBtn);
+    actionsRow.appendChild(copyBtn);
+    actionsRow.appendChild(moveBtn);
+    actionsRow.appendChild(delBtn);
+    row.appendChild(topRow);
+    row.appendChild(actionsRow);
+    return row;
+  }
   function renderSavedEventsList() {
-    var list = getSavedEvents();
+    var list = getMainSavedEvents();
     var container = $('saved-events-list');
     container.innerHTML = '';
     if (!list.length) {
@@ -390,124 +616,24 @@
       container.appendChild(empty);
       return;
     }
-    list.forEach(function (entry, i) {
-      var row = document.createElement('div');
-      row.className = 'saved-event-row';
-      var topRow = document.createElement('div');
-      topRow.className = 'saved-event-row-top';
-      var actionsRow = document.createElement('div');
-      actionsRow.className = 'saved-event-row-actions';
-      var name = document.createElement('span');
-      name.className = 'saved-event-name';
-      name.textContent = entry.name;
-      var renameBtn = document.createElement('button');
-      renameBtn.type = 'button';
-      renameBtn.className = 'btn btn-ghost';
-      renameBtn.innerHTML = '✏️<span class="btn-icon-label">שינוי שם</span>';
-      renameBtn.title = 'שינוי שם האירוע';
-      renameBtn.addEventListener('click', function () {
-        // Inline edit instead of window.prompt() - same reason as the
-        // event-info/print-bridge modals: a blocking native dialog was
-        // found to freeze the live camera on iOS.
-        var input = document.createElement('input');
-        input.type = 'text';
-        input.className = 'saved-event-name-input';
-        input.value = entry.name;
-        topRow.replaceChild(input, name);
-        // The input was squeezed in next to 4 other buttons (טעינה/📋/📦/🗑️)
-        // still sitting in the same row, leaving it almost no width to
-        // actually show the name being typed - hiding them while editing
-        // gives the input the whole row. They come back on their own
-        // since commit/cancel both end in a full renderSavedEventsList().
-        renameBtn.style.display = 'none';
-        actionsRow.style.display = 'none';
-        input.focus();
-        input.select();
-        // On iPad the on-screen keyboard covers roughly the bottom half
-        // of the screen once it slides up, and this row can end up
-        // hidden behind it since nothing here scrolls automatically -
-        // the delay lets the keyboard's slide-in animation finish before
-        // scrolling, otherwise the browser measures the row's position
-        // before the viewport has actually shrunk.
-        setTimeout(function () {
-          input.scrollIntoView({ block: 'center', behavior: 'smooth' });
-        }, 300);
-        var done = false;
-        function commit() {
-          if (done) return;
-          done = true;
-          var newName = input.value.trim();
-          if (!newName || newName === entry.name) { renderSavedEventsList(); return; }
-          var list2 = getSavedEvents();
-          var clash = list2.some(function (e, idx) { return idx !== i && e.name === newName; });
-          if (clash) { toast('כבר קיים אירוע בשם הזה'); renderSavedEventsList(); return; }
-          var wasActive = getActiveEventName() === entry.name;
-          list2[i].name = newName;
-          setSavedEvents(list2);
-          if (wasActive) setActiveEventName(newName);
-          renderSavedEventsList();
-          toast('שם האירוע עודכן');
-        }
-        input.addEventListener('keydown', function (e) {
-          if (e.key === 'Enter') { e.preventDefault(); commit(); }
-          else if (e.key === 'Escape') { done = true; renderSavedEventsList(); }
-        });
-        input.addEventListener('blur', commit);
-      });
-      var loadBtn = document.createElement('button');
-      loadBtn.type = 'button';
-      loadBtn.className = 'btn btn-ghost';
-      loadBtn.innerHTML = '📂<span class="btn-icon-label">טעינה</span>';
-      loadBtn.addEventListener('click', function () {
-        applySavedSetup(entry.setup, entry.name);
-        renderGalleryGrid();
-        toast('האירוע "' + entry.name + '" נטען');
-      });
-      var copyBtn = document.createElement('button');
-      copyBtn.type = 'button';
-      copyBtn.className = 'btn btn-ghost';
-      copyBtn.innerHTML = '📋<span class="btn-icon-label">שכפול</span>';
-      copyBtn.title = 'שכפול הגדרות האירוע הזה (עיצוב, רקע, מצב צילום) לאירוע חדש - בלי לשייך תמונות אליו עדיין';
-      copyBtn.addEventListener('click', function () {
-        // Copies the design/background/capture-mode settings only - does
-        // NOT switch the active event (so nothing gets photo-tagged to
-        // the source event by mistake). Staff just edits the name/date
-        // and taps "שמירה" under a new name to finish setting up the copy.
-        applySavedSetup(entry.setup, getActiveEventName());
-        $('save-event-name-input').value = entry.name + ' - עותק';
-        $('save-event-name-input').focus();
-        toast('ההגדרות של "' + entry.name + '" הועתקו - עדכני שם/תאריך ולחצי שמירה');
-      });
-      var finishBtn = document.createElement('button');
-      finishBtn.type = 'button';
-      finishBtn.className = 'btn btn-ghost';
-      finishBtn.innerHTML = '📦<span class="btn-icon-label">גיבוי</span>';
-      finishBtn.title = 'סיימתי את האירוע - גיבוי התמונות שלו';
-      finishBtn.addEventListener('click', function () {
-        exportEventZip(entry.name, function () {
-          setTimeout(function () {
-            alert('הקובץ של "' + entry.name + '" נוצר - עכשיו חשוב לשמור אותו במקום קבוע (גוגל דרייב, מייל לעצמך וכו׳), לא להסתמך רק על האייפד.');
-          }, 400);
-        });
-      });
-      var delBtn = document.createElement('button');
-      delBtn.type = 'button';
-      delBtn.className = 'btn btn-ghost';
-      delBtn.innerHTML = '🗑️<span class="btn-icon-label">מחיקה</span>';
-      delBtn.addEventListener('click', function () {
-        setSavedEvents(getSavedEvents().filter(function (_, idx) { return idx !== i; }));
-        if (getActiveEventName() === entry.name) setActiveEventName('');
-        renderSavedEventsList();
-      });
-      topRow.appendChild(name);
-      topRow.appendChild(renameBtn);
-      actionsRow.appendChild(loadBtn);
-      actionsRow.appendChild(copyBtn);
-      actionsRow.appendChild(finishBtn);
-      actionsRow.appendChild(delBtn);
-      row.appendChild(topRow);
-      row.appendChild(actionsRow);
-      container.appendChild(row);
+    list.forEach(function (entry) {
+      container.appendChild(buildSavedEventRow(entry, false));
+    });
+  }
+  function renderArchivedEventsList() {
+    var container = $('archived-events-list');
+    if (!container) return;
+    var list = getArchivedSavedEvents();
+    container.innerHTML = '';
+    if (!list.length) {
+      var empty = document.createElement('p');
+      empty.className = 'design-hint';
+      empty.textContent = 'התיקייה ריקה';
+      container.appendChild(empty);
+      return;
+    }
+    list.forEach(function (entry) {
+      container.appendChild(buildSavedEventRow(entry, true));
     });
   }
   // Writes the CURRENT live setup (event info, print bridge, design,
@@ -520,7 +646,18 @@
     var setup = snapshotCurrentSetup();
     var existingIdx = -1;
     for (var i = 0; i < list.length; i++) { if (list[i].name === name) { existingIdx = i; break; } }
-    if (existingIdx >= 0) { list[existingIdx].setup = setup; } else { list.push({ name: name, setup: setup }); }
+    if (existingIdx >= 0) {
+      // Updating an existing event's own snapshot never changes whether
+      // it's archived - only the explicit "העבר לתיקייה"/"העבר לאירועים
+      // שמורים" buttons do that.
+      list[existingIdx].setup = setup;
+    } else {
+      // A brand new event beyond the main list's cap goes straight into
+      // the "📁 אירועים שמורים" folder instead of growing that list
+      // forever - staff can still pull it back out any time there's room.
+      var goesToArchive = getMainSavedEvents(list).length >= MAX_MAIN_EVENTS;
+      list.push({ name: name, setup: setup, archived: goesToArchive });
+    }
     setSavedEvents(list);
   }
   $('save-event-btn').addEventListener('click', function () {
@@ -530,7 +667,9 @@
     setActiveEventName(name);
     $('save-event-name-input').value = '';
     renderSavedEventsList();
-    toast('האירוע נשמר');
+    renderArchivedEventsList();
+    var saved = getSavedEvents().filter(function (e) { return e.name === name; })[0];
+    toast(saved && saved.archived ? 'האירוע נשמר בתיקיית "אירועים שמורים" (הרשימה הראשית מלאה)' : 'האירוע נשמר');
   });
 
 
@@ -771,6 +910,33 @@
     localStorage.setItem(DESIGN_SYNC_V2_DONE_KEY, '1');
   }
   backfillLayerStrength();
+
+  // Third one-time pass: the main "אירועים שמורים" list is now capped at
+  // MAX_MAIN_EVENTS, with the rest living in the "📁 אירועים שמורים
+  // בתיקייה" folder (entry.archived: true) - archives whichever already-
+  // saved events sit beyond the first MAX_MAIN_EVENTS (in their existing
+  // order), exactly once, so nobody's real events just vanish from view.
+  // Touches only the new archived flag, nothing else about any event.
+  var DESIGN_SYNC_V3_DONE_KEY = 'm4u_design_sync_v3_done';
+  function archiveOverflowSavedEvents() {
+    if (localStorage.getItem(DESIGN_SYNC_V3_DONE_KEY)) return;
+    try {
+      var list = getSavedEvents();
+      var mainCount = 0;
+      var changed = false;
+      list.forEach(function (entry) {
+        if (entry.archived) return;
+        mainCount++;
+        if (mainCount > MAX_MAIN_EVENTS) {
+          entry.archived = true;
+          changed = true;
+        }
+      });
+      if (changed) setSavedEvents(list);
+    } catch (e) {}
+    localStorage.setItem(DESIGN_SYNC_V3_DONE_KEY, '1');
+  }
+  archiveOverflowSavedEvents();
 
   // Converts a design saved before the layer system existed (flat
   // titleX/heartSize/brandColor... fields) into the new layers array,
@@ -1390,17 +1556,6 @@
     reopenSettingsAfterScreen = true;
     openGallery('screen-welcome');
   });
-  // Photos captured while no named saved event was active (the default
-  // bucket, including everything shot before per-event albums existed)
-  // aren't reachable through any saved-event row - this is the only way
-  // back to them.
-  $('unassigned-event-btn').addEventListener('click', function () {
-    setActiveEventName('');
-    $('settings-panel').classList.remove('active');
-    reopenSettingsAfterScreen = true;
-    openGallery('screen-welcome');
-  });
-
   // ---------- Result screen ----------
   var resultUrl = null;
   var resultGifUrl = null;
