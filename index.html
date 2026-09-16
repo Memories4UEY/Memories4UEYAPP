@@ -155,29 +155,23 @@
     text-shadow: 0 2px 8px rgba(0,0,0,.8);
     pointer-events: none;
   }
-  #welcome-settings-btn {
+  #welcome-settings-group, #ready-back-group {
     position: absolute;
     top: calc(14px + env(safe-area-inset-top));
-    left: 14px;
     z-index: 6;
-    opacity: .8;
-    width: 52px;
-    height: 52px;
-    border-radius: 50%;
-    background: var(--color-surface-2);
-    border: 1px solid var(--color-border);
-    color: var(--color-gold);
     display: flex;
+    flex-direction: column;
     align-items: center;
-    justify-content: center;
-    font-size: 24px;
-    cursor: pointer;
+    gap: 4px;
   }
-  #ready-back-btn {
-    position: absolute;
-    top: calc(14px + env(safe-area-inset-top));
-    right: 14px;
-    z-index: 6;
+  #welcome-settings-group { left: 14px; }
+  #ready-back-group { right: 14px; }
+  #welcome-settings-group .floating-btn-label, #ready-back-group .floating-btn-label {
+    font-size: 10px;
+    color: var(--color-gold);
+    text-shadow: 0 1px 6px rgba(0,0,0,.9), 0 1px 2px #000;
+  }
+  #welcome-settings-btn, #ready-back-btn {
     opacity: .8;
     width: 52px;
     height: 52px;
@@ -280,13 +274,15 @@
   #saved-events-list { display: flex; flex-direction: column; gap: 6px; }
   .saved-event-row {
     display: flex;
-    align-items: center;
-    gap: 8px;
+    flex-direction: column;
+    gap: 6px;
     background: var(--color-bg);
     border: 1px solid var(--color-border);
     border-radius: 10px;
     padding: 8px 10px;
   }
+  .saved-event-row-top { display: flex; align-items: center; gap: 8px; }
+  .saved-event-row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
   .saved-event-name { flex: 1; font-size: 13px; color: var(--color-text); }
   .saved-event-name-input {
     flex: 1; font-size: 13px; color: var(--color-text);
@@ -294,6 +290,13 @@
     border-radius: 6px; padding: 4px 8px; min-width: 0;
   }
   .saved-event-row .btn { padding: 6px 10px; font-size: 12px; }
+  .saved-event-row .btn-icon-label {
+    display: block;
+    font-size: 8px;
+    margin-top: 2px;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+  }
 
   /* ---- Generic small modal (event info / print bridge address) ----
      Plain on-screen modals instead of window.prompt(), which was found
@@ -990,7 +993,10 @@
 
 <!-- ============ WELCOME SCREEN ============ -->
 <div id="screen-welcome" class="screen">
-  <button class="icon-btn" id="welcome-settings-btn" aria-label="הגדרות אירוע" title="הגדרות אירוע">⚙</button>
+  <div id="welcome-settings-group">
+    <button class="icon-btn" id="welcome-settings-btn" aria-label="הגדרות אירוע" title="הגדרות אירוע">⚙️</button>
+    <span class="floating-btn-label">הגדרות</span>
+  </div>
   <span id="welcome-title">הגדרות</span>
   <div id="welcome-content">
     <img class="badge" src="assets/img/logo-ig.jpg" alt="Memories4U">
@@ -1004,7 +1010,10 @@
 
 <!-- ============ READY SCREEN (branded splash right before the camera) ============ -->
 <div id="screen-ready" class="screen">
-  <button class="icon-btn" id="ready-back-btn" aria-label="חזרה" title="חזרה">‹</button>
+  <div id="ready-back-group">
+    <button class="icon-btn" id="ready-back-btn" aria-label="חזרה" title="חזרה">‹</button>
+    <span class="floating-btn-label">חזור</span>
+  </div>
   <button class="btn" id="ready-start-btn">
     <img id="ready-start-btn-logo" src="assets/img/logo-ig.jpg" alt="">
     <span>התחילו לצלם</span>
@@ -1038,7 +1047,7 @@
       <button type="button" class="btn btn-ghost" id="design-editor-btn">🎨 עריכת עיצוב</button>
     </div>
     <div class="settings-mode-row">
-      <button type="button" class="btn btn-ghost" id="print-settings-btn">🖨 כתובת הדפסה</button>
+      <button type="button" class="btn btn-ghost" id="print-settings-btn">🖨️ כתובת הדפסה</button>
       <button type="button" class="btn btn-ghost" id="open-gallery-btn">🖼 גלריה</button>
     </div>
     <label class="settings-label">אירועים שמורים (שם, תאריך, רקע ועיצוב) - לכל אירוע שמור יש אלבום תמונות נפרד משלו. ליד כל אירוע: טעינה, גיבוי תמונות, ומחיקה.</label>
@@ -1111,13 +1120,19 @@
 <div id="screen-camera" class="screen">
   <!-- Guest-facing: camera only. Staff controls (print/event/design/
        gallery) live behind the password-gated arrow below, under
-       ⚙ on the main screen - guests never see or touch them. -->
+       ⚙️ on the main screen - guests never see or touch them. -->
   <div class="topbar">
-    <button class="icon-btn" id="camera-admin-btn" aria-label="חזרה" title="חזרה">‹</button>
+    <div class="icon-btn-group">
+      <button class="icon-btn" id="camera-admin-btn" aria-label="חזרה" title="חזרה">‹</button>
+      <span class="icon-btn-label">חזור</span>
+    </div>
     <span class="brand">Memories4U</span>
-    <button class="icon-btn camera-last-photo-btn" id="camera-last-photo-btn" aria-label="התמונה האחרונה שלי" title="חזרה לתמונה האחרונה שלי" style="display:none">
-      <img id="camera-last-photo-thumb" alt="">
-    </button>
+    <div class="icon-btn-group" id="camera-last-photo-group" style="display:none">
+      <button class="icon-btn camera-last-photo-btn" id="camera-last-photo-btn" aria-label="התמונה האחרונה שלי" title="חזרה לתמונה האחרונה שלי">
+        <img id="camera-last-photo-thumb" alt="">
+      </button>
+      <span class="icon-btn-label">תמונתי</span>
+    </div>
   </div>
   <div class="cam-wrap">
     <video id="video" playsinline autoplay muted></video>
@@ -1148,10 +1163,16 @@
 <!-- ============ RESULT SCREEN ============ -->
 <div id="screen-result" class="screen">
   <div class="topbar">
-    <button class="icon-btn" id="result-back-btn" aria-label="חזרה">‹</button>
-    <button class="icon-btn camera-last-photo-btn" id="result-gallery-btn" aria-label="גלריה" title="גלריה">
-      <img id="result-gallery-thumb" alt="">
-    </button>
+    <div class="icon-btn-group">
+      <button class="icon-btn" id="result-back-btn" aria-label="חזרה">‹</button>
+      <span class="icon-btn-label">חזור</span>
+    </div>
+    <div class="icon-btn-group">
+      <button class="icon-btn camera-last-photo-btn" id="result-gallery-btn" aria-label="גלריה" title="גלריה">
+        <img id="result-gallery-thumb" alt="">
+      </button>
+      <span class="icon-btn-label">גלריה</span>
+    </div>
   </div>
   <div class="result-photo-wrap">
     <img id="result-canvas-view" alt="התמונה שצולמה">
@@ -1175,11 +1196,11 @@
         <span class="fab-label">צילום נוסף</span>
       </div>
       <div class="fab-item">
-        <button class="fab-btn" id="btn-bw" aria-label="שחור-לבן">◐</button>
+        <button class="fab-btn" id="btn-bw" aria-label="שחור-לבן">🌓</button>
         <span class="fab-label">שחור-לבן</span>
       </div>
       <div class="fab-item">
-        <button class="fab-btn" id="btn-print" aria-label="הדפסה">🖨</button>
+        <button class="fab-btn" id="btn-print" aria-label="הדפסה">🖨️</button>
         <span class="fab-label">הדפסה</span>
         <div class="copies-stepper">
           <button type="button" id="copies-minus" aria-label="פחות עותקים">−</button>
@@ -1188,7 +1209,7 @@
         </div>
       </div>
       <div class="fab-item" id="delete-fab-item" style="display:none">
-        <button class="fab-btn fab-btn-danger" id="btn-delete" aria-label="מחיקת התמונה">🗑</button>
+        <button class="fab-btn fab-btn-danger" id="btn-delete" aria-label="מחיקת התמונה">🗑️</button>
         <span class="fab-label">מחיקה</span>
       </div>
     </div>
@@ -1198,17 +1219,23 @@
 <!-- ============ GALLERY SCREEN ============ -->
 <div id="screen-gallery" class="screen">
   <div class="topbar">
-    <button class="icon-btn" id="gallery-back-btn" aria-label="חזרה למצלמה">‹</button>
+    <div class="icon-btn-group">
+      <button class="icon-btn" id="gallery-back-btn" aria-label="חזרה למצלמה">‹</button>
+      <span class="icon-btn-label">חזור</span>
+    </div>
     <span class="brand">כל התמונות</span>
-    <button class="icon-btn" id="export-all-btn" aria-label="ייצוא כל התמונות" title="ייצוא כל התמונות">📦</button>
+    <div class="icon-btn-group">
+      <button class="icon-btn" id="export-all-btn" aria-label="ייצוא כל התמונות" title="ייצוא כל התמונות">📦</button>
+      <span class="icon-btn-label">ייצוא</span>
+    </div>
   </div>
   <div class="gallery-toolbar" id="gallery-admin-toolbar">
     <button class="btn btn-ghost" id="gallery-select-btn">☑ בחירה</button>
-    <button class="btn btn-ghost" id="gallery-delete-all-btn">🗑 מחק הכל</button>
+    <button class="btn btn-ghost" id="gallery-delete-all-btn">🗑️ מחק הכל</button>
   </div>
   <div class="gallery-toolbar" id="gallery-selection-toolbar" style="display:none">
     <button class="btn btn-ghost" id="gallery-share-selected-btn">📤 שתף (0)</button>
-    <button class="btn btn-ghost" id="gallery-delete-selected-btn">🗑 מחק (0)</button>
+    <button class="btn btn-ghost" id="gallery-delete-selected-btn">🗑️ מחק (0)</button>
     <button class="btn btn-ghost" id="gallery-cancel-select-btn">ביטול</button>
   </div>
   <div id="gallery-grid" class="gallery-grid"></div>
@@ -1224,7 +1251,7 @@
     <span class="brand">עורך עיצוב</span>
     <div class="topbar-actions">
       <div class="icon-btn-group">
-        <button class="icon-btn" id="design-undo-btn" aria-label="בטל פעולה אחרונה" title="בטל את הפעולה האחרונה">↩</button>
+        <button class="icon-btn" id="design-undo-btn" aria-label="בטל פעולה אחרונה" title="בטל את הפעולה האחרונה">↩️</button>
         <span class="icon-btn-label">בטל</span>
       </div>
       <div class="icon-btn-group">
@@ -1236,7 +1263,7 @@
         <span class="icon-btn-label">ברירת מחדל</span>
       </div>
       <div class="icon-btn-group">
-        <button class="icon-btn" id="design-reset-btn" aria-label="איפוס" title="איפוס לברירת מחדל">↺</button>
+        <button class="icon-btn" id="design-reset-btn" aria-label="איפוס" title="איפוס לברירת מחדל">🔄</button>
         <span class="icon-btn-label">איפוס</span>
       </div>
     </div>

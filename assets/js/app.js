@@ -174,11 +174,11 @@
   // (see ACTIVE_EVENT_KEY below), so each event's gallery only ever shows
   // its own photos - loading a different saved event switches the whole
   // gallery to that event's own set, nothing mixes together.
-  function dbAdd(blob) {
+  function dbAdd(blob, gifBlob) {
     return dbPromise.then(function (db) {
       return new Promise(function (resolve, reject) {
         var tx = db.transaction(STORE, 'readwrite');
-        var req = tx.objectStore(STORE).add({ blob: blob, createdAt: Date.now(), eventName: getActiveEventName() });
+        var req = tx.objectStore(STORE).add({ blob: blob, gifBlob: gifBlob || null, createdAt: Date.now(), eventName: getActiveEventName() });
         req.onsuccess = function () { resolve(req.result); };
         req.onerror = function () { reject(req.error); };
       });
@@ -275,7 +275,7 @@
   });
 
   // ---------- Capture mode (strip of 3 vs. one wide photo) ----------
-  // Staff-only setting (chosen once per event in the ⚙ settings panel on
+  // Staff-only setting (chosen once per event in the ⚙️ settings panel on
   // the welcome screen) - guests never see or touch this.
   var MODE_KEY = 'm4u_capture_mode';
   var captureMode = localStorage.getItem(MODE_KEY) || 'strip';
@@ -392,13 +392,17 @@
     list.forEach(function (entry, i) {
       var row = document.createElement('div');
       row.className = 'saved-event-row';
+      var topRow = document.createElement('div');
+      topRow.className = 'saved-event-row-top';
+      var actionsRow = document.createElement('div');
+      actionsRow.className = 'saved-event-row-actions';
       var name = document.createElement('span');
       name.className = 'saved-event-name';
       name.textContent = entry.name;
       var renameBtn = document.createElement('button');
       renameBtn.type = 'button';
       renameBtn.className = 'btn btn-ghost';
-      renameBtn.textContent = '✏️';
+      renameBtn.innerHTML = '✏️<span class="btn-icon-label">שינוי שם</span>';
       renameBtn.title = 'שינוי שם האירוע';
       renameBtn.addEventListener('click', function () {
         // Inline edit instead of window.prompt() - same reason as the
@@ -408,17 +412,14 @@
         input.type = 'text';
         input.className = 'saved-event-name-input';
         input.value = entry.name;
-        row.replaceChild(input, name);
-        // The input was squeezed in next to 4 other buttons (טעינה/📋/📦/🗑)
+        topRow.replaceChild(input, name);
+        // The input was squeezed in next to 4 other buttons (טעינה/📋/📦/🗑️)
         // still sitting in the same row, leaving it almost no width to
         // actually show the name being typed - hiding them while editing
         // gives the input the whole row. They come back on their own
         // since commit/cancel both end in a full renderSavedEventsList().
         renameBtn.style.display = 'none';
-        loadBtn.style.display = 'none';
-        copyBtn.style.display = 'none';
-        finishBtn.style.display = 'none';
-        delBtn.style.display = 'none';
+        actionsRow.style.display = 'none';
         input.focus();
         input.select();
         // On iPad the on-screen keyboard covers roughly the bottom half
@@ -464,7 +465,7 @@
       var copyBtn = document.createElement('button');
       copyBtn.type = 'button';
       copyBtn.className = 'btn btn-ghost';
-      copyBtn.textContent = '📋';
+      copyBtn.innerHTML = '📋<span class="btn-icon-label">שכפול</span>';
       copyBtn.title = 'שכפול הגדרות האירוע הזה (עיצוב, רקע, מצב צילום) לאירוע חדש - בלי לשייך תמונות אליו עדיין';
       copyBtn.addEventListener('click', function () {
         // Copies the design/background/capture-mode settings only - does
@@ -479,7 +480,7 @@
       var finishBtn = document.createElement('button');
       finishBtn.type = 'button';
       finishBtn.className = 'btn btn-ghost';
-      finishBtn.textContent = '📦';
+      finishBtn.innerHTML = '📦<span class="btn-icon-label">גיבוי</span>';
       finishBtn.title = 'סיימתי את האירוע - גיבוי התמונות שלו';
       finishBtn.addEventListener('click', function () {
         exportEventZip(entry.name, function () {
@@ -491,18 +492,20 @@
       var delBtn = document.createElement('button');
       delBtn.type = 'button';
       delBtn.className = 'btn btn-ghost';
-      delBtn.textContent = '🗑';
+      delBtn.innerHTML = '🗑️<span class="btn-icon-label">מחיקה</span>';
       delBtn.addEventListener('click', function () {
         setSavedEvents(getSavedEvents().filter(function (_, idx) { return idx !== i; }));
         if (getActiveEventName() === entry.name) setActiveEventName('');
         renderSavedEventsList();
       });
-      row.appendChild(name);
-      row.appendChild(renameBtn);
-      row.appendChild(loadBtn);
-      row.appendChild(copyBtn);
-      row.appendChild(finishBtn);
-      row.appendChild(delBtn);
+      topRow.appendChild(name);
+      topRow.appendChild(renameBtn);
+      actionsRow.appendChild(loadBtn);
+      actionsRow.appendChild(copyBtn);
+      actionsRow.appendChild(finishBtn);
+      actionsRow.appendChild(delBtn);
+      row.appendChild(topRow);
+      row.appendChild(actionsRow);
       container.appendChild(row);
     });
   }
@@ -560,7 +563,7 @@
   function saveCurrentSetupToActiveEvent() {
     var name = getActiveEventName();
     if (!name) {
-      toast('אין אירוע פעיל - שמרו קודם אירוע בשם דרך ⚙ הגדרות');
+      toast('אין אירוע פעיל - שמרו קודם אירוע בשם דרך ⚙️ הגדרות');
       return;
     }
     writeEventSnapshot(name);
@@ -666,7 +669,7 @@
   var STRIP_DESIGN_KEY = 'm4u_strip_design';
   var WIDE_DESIGN_KEY = 'm4u_wide_design';
   // A staff-defined "my own default" per tab (📌 in the design editor) -
-  // when set, the ↺ reset button restores THIS instead of the built-in
+  // when set, the 🔄 reset button restores THIS instead of the built-in
   // DEFAULT_STRIP_DESIGN/DEFAULT_WIDE_DESIGN below, so "reset" gives back
   // the layout staff actually wants, not the app's original placeholder.
   var CUSTOM_DEFAULT_STRIP_KEY = 'm4u_custom_default_strip';
@@ -1109,13 +1112,13 @@
     return canvasToBlob(canvas).then(function (blob) {
       currentBlob = blob;
       currentPhotoId = null;
-      dbAdd(blob).then(function (id) { currentPhotoId = id; });
-      openResult(blob, true);
+      dbAdd(blob, currentGifBlob).then(function (id) { currentPhotoId = id; });
+      openResult(blob, true, currentGifBlob);
     });
   }
 
   // ---------- Background replacement ("green screen" without a green
-  // screen) - an optional, staff-toggled setting (⚙ on the main screen).
+  // screen) - an optional, staff-toggled setting (⚙️ on the main screen).
   // Off by default; when on, every captured frame has its real
   // background swapped for a plain backdrop, using MediaPipe's Selfie
   // Segmentation model to tell person from background. Runs entirely in
@@ -1326,7 +1329,7 @@
   // the gallery grid, so the back arrow returns to the right place
   // instead of always jumping to the camera.
   var resultReturnScreen = 'screen-camera';
-  function openResult(blob, fromCapture) {
+  function openResult(blob, fromCapture, gifBlob) {
     resultReturnScreen = fromCapture ? 'screen-camera' : 'screen-gallery';
     currentBlob = blob;
     currentColorBlob = blob;
@@ -1339,20 +1342,29 @@
     $('result-gallery-thumb').src = resultUrl;
     // Deleting is an admin-only action - even when a guest taps into an
     // individual photo from the (now guest-accessible) full gallery,
-    // never show it there, only when staff reached the gallery via ⚙.
+    // never show it there, only when staff reached the gallery via ⚙️.
     $('delete-fab-item').style.display = (fromCapture || galleryReturnScreen === 'screen-result') ? 'none' : '';
-    if (!fromCapture) {
-      // Viewing an old gallery photo - no freshly-made GIF goes with it.
+    if (gifBlob) {
+      // Strip captures carry a GIF - either freshly made just now, or
+      // (for a photo reopened from the gallery) the one saved alongside
+      // it at capture time, so it's available here too, not just right
+      // after shooting it.
+      currentGifBlob = gifBlob;
+      currentColorGifBlob = gifBlob;
+      bwGifBlobCache = null;
+      $('gif-fab-item').style.display = '';
+    } else {
       currentGifBlob = null;
       currentColorGifBlob = null;
       bwGifBlobCache = null;
       $('gif-fab-item').style.display = 'none';
-    } else {
+    }
+    if (fromCapture) {
       // A quick way back to a guest's own just-taken photo (to reprint or
       // reshare) if they wander back to the camera screen without
       // meaning to - separate from the full staff-only gallery.
       $('camera-last-photo-thumb').src = resultUrl;
-      $('camera-last-photo-btn').style.display = '';
+      $('camera-last-photo-group').style.display = '';
     }
     printCopies = 1;
     $('copies-count').textContent = printCopies;
@@ -1473,7 +1485,7 @@
     $('qr-render').innerHTML = '';
     var base = bridgeBase();
     if (!base) {
-      $('qr-status').textContent = 'צריך קודם להגדיר את כתובת הגשר ב-⚙ (אותה כתובת של ההדפסה).';
+      $('qr-status').textContent = 'צריך קודם להגדיר את כתובת הגשר ב-⚙️ (אותה כתובת של ההדפסה).';
       return;
     }
     $('qr-status').textContent = 'מעלים…';
@@ -1496,7 +1508,14 @@
     });
   }
   $('btn-qr').addEventListener('click', function () { showQrFor(currentBlob); });
-  $('gif-qr-btn').addEventListener('click', function () { showQrFor(currentGifBlob); });
+  $('gif-qr-btn').addEventListener('click', function () {
+    // The GIF panel and the QR panel share the same overlay z-index, and
+    // the GIF panel comes later in the DOM, so opening the QR panel while
+    // the GIF panel is still open leaves it hidden behind it (looks like
+    // the button did nothing until GIF panel's own "סגירה" is tapped).
+    $('gif-panel').classList.remove('active');
+    showQrFor(currentGifBlob);
+  });
   $('qr-close-btn').addEventListener('click', function () {
     $('qr-panel').classList.remove('active');
   });
@@ -1639,7 +1658,7 @@
     gallerySelectedIds = {};
     // A guest can reach the gallery straight from their own result screen
     // (no password) - management actions (select/delete-all/export-all)
-    // stay admin-only, reached only via ⚙ settings, never for a guest.
+    // stay admin-only, reached only via ⚙️ settings, never for a guest.
     var isGuestGallery = galleryReturnScreen === 'screen-result';
     $('gallery-admin-toolbar').style.display = isGuestGallery ? 'none' : '';
     $('export-all-btn').style.display = isGuestGallery ? 'none' : '';
@@ -1669,7 +1688,7 @@
       }
       var selectedCount = Object.keys(gallerySelectedIds).length;
       $('gallery-share-selected-btn').textContent = '📤 שתף (' + selectedCount + ')';
-      $('gallery-delete-selected-btn').textContent = '🗑 מחק (' + selectedCount + ')';
+      $('gallery-delete-selected-btn').textContent = '🗑️ מחק (' + selectedCount + ')';
       rows.forEach(function (row) {
         var isSelected = !!gallerySelectedIds[row.id];
         var item = document.createElement('div');
@@ -1693,7 +1712,7 @@
             renderGalleryGrid();
           } else {
             currentPhotoId = row.id;
-            openResult(row.blob, false);
+            openResult(row.blob, false, row.gifBlob);
           }
         });
         grid.appendChild(item);
@@ -2046,7 +2065,7 @@
     actions.className = 'layer-actions';
     actions.appendChild(mkActionBtn('◎ מרכז אופקית', function () { centerLayerH(layer.id); }));
     actions.appendChild(mkActionBtn('⧉ שכפול', function () { duplicateLayer(layer.id); }));
-    actions.appendChild(mkActionBtn('🗑 מחיקה', function () { deleteLayer(layer.id); }, true));
+    actions.appendChild(mkActionBtn('🗑️ מחיקה', function () { deleteLayer(layer.id); }, true));
     wrap.appendChild(actions);
 
     var orderActions = document.createElement('div');
@@ -2293,7 +2312,7 @@
     var generalChip = document.createElement('button');
     generalChip.type = 'button';
     generalChip.className = 'layer-chip' + (!selectedLayerId ? ' active' : '');
-    generalChip.textContent = '⚙ פריסה כללית';
+    generalChip.textContent = '⚙️ פריסה כללית';
     generalChip.addEventListener('click', function () {
       selectedLayerId = null;
       renderDesignControls();
