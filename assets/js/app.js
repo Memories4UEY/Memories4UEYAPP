@@ -159,28 +159,30 @@
 
   // A Home Screen web app can resume a SUSPENDED session when reopened
   // instead of actually reloading anything - in that case no network
-  // request happens at all, so staff can close/reopen as many times as
-  // they like with nothing changing, because the exact same already-
-  // running old JS just keeps going (this is why the ?v= cache-busting
-  // on the <script>/<link> tags in index.html alone isn't always enough
-  // - it only helps once a real navigation actually happens). This
-  // checks, once per load, whether index.html on the server references a
-  // newer app.js than the one actually running here, and if so forces a
-  // genuine fresh navigation (not just reload(), which can itself be
-  // served from the same stale state) - so an update reaches the device
-  // on its own the next time staff open the app, with no dependence on
-  // getting a close/force-quit gesture exactly right.
-  var APP_VERSION = '20260916k';
-  (function checkForFreshVersion() {
+  // request happens at all, so a plain close/reopen alone doesn't
+  // guarantee a fresh copy. This checks whether index.html on the server
+  // references a newer app.js than the one actually running here, and if
+  // so forces a genuine fresh navigation (not just reload(), which can
+  // itself be served from the same stale state). Manual only, from the
+  // "🔄 רענון" button in settings - staff asked for this to be something
+  // THEY trigger on purpose after uploading an update, not something the
+  // app decides to do on its own.
+  var APP_VERSION = '20260916m';
+  function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
+    if (manual) toast('בודק אם יש עדכון…');
     fetch('index.html', { cache: 'no-store' }).then(function (res) { return res.text(); }).then(function (html) {
       var m = html.match(/app\.js\?v=([A-Za-z0-9]+)/);
       if (m && m[1] && m[1] !== APP_VERSION) {
         var sep = location.search ? '&' : '?';
         location.replace(location.pathname + location.search + sep + '_fresh=' + Date.now());
+      } else if (manual) {
+        toast('האפליקציה כבר מעודכנת');
       }
-    }).catch(function () {});
-  })();
+    }).catch(function () {
+      if (manual) toast('לא הצלחתי לבדוק - יש בעיה בחיבור לאינטרנט');
+    });
+  }
 
   // Asks the browser to mark this site's storage as "persistent" - i.e.
   // exempt from the automatic cleanup iOS/Safari can otherwise do to
@@ -372,6 +374,7 @@
   $('archive-close-btn').addEventListener('click', function () {
     $('archive-panel').classList.remove('active');
   });
+  $('check-update-btn').addEventListener('click', function () { checkForFreshVersion(true); });
   $('settings-close-btn').addEventListener('click', function () {
     $('settings-panel').classList.remove('active');
     flushActiveEventSync();
