@@ -167,7 +167,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260916m';
+  var APP_VERSION = '20260916n';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -375,6 +375,18 @@
     $('archive-panel').classList.remove('active');
   });
   $('check-update-btn').addEventListener('click', function () { checkForFreshVersion(true); });
+  // Without this, once ANY event is ever loaded there was no way back to
+  // "nothing loaded" - it just stays stuck as active forever (including
+  // across closing/reopening the app), so the "צריך לטעון אירוע" camera
+  // gate could never fire again after the very first event. This is the
+  // deliberate reset staff taps at the end of a night, so tomorrow's
+  // first "התחילו לצלם" is forced to pick the right new event on purpose
+  // instead of silently reusing yesterday's.
+  $('clear-active-event-btn').addEventListener('click', function () {
+    if (!getActiveEventName()) { toast('אין אירוע פעיל'); return; }
+    setActiveEventName('');
+    toast('האירוע הפעיל נוקה - יידרש לטעון אירוע כדי לצלם');
+  });
   $('settings-close-btn').addEventListener('click', function () {
     $('settings-panel').classList.remove('active');
     flushActiveEventSync();
