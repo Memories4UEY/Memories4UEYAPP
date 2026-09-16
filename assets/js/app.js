@@ -2329,13 +2329,6 @@
       });
       trow.appendChild(input);
       wrap.appendChild(trow);
-    } else if (layer.auto) {
-      var note = document.createElement('p');
-      note.className = 'design-hint';
-      note.textContent = layer.auto === 'title'
-        ? 'התוכן מגיע משם האירוע (כפתור 📝 במסך הצילום)'
-        : 'התוכן מגיע מתאריך האירוע (כפתור 📝 במסך הצילום)';
-      wrap.appendChild(note);
     }
 
     if (layer.type === 'emoji') {
