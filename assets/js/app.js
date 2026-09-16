@@ -679,23 +679,23 @@
   var DEFAULT_STRIP_DESIGN = {
     sideTextW: 30, innerPad: 6, topMargin: 40, gap: 20, footerH: 250, cornerRadius: 7,
     layers: [
-      { id: 'title', type: 'text', auto: 'title', x: 0.5, y: 0.931, size: 46, color: '#000000', font: 'englishParisienne', rotation: 0, weight: '' },
+      { id: 'title', type: 'text', auto: 'title', x: 0.5, y: 0.931, size: 46, color: '#000000', font: 'englishParisienne', rotation: 0, weight: '', strength: 0 },
       { id: 'heart', type: 'emoji', text: '♥', x: 0.48, y: 0.951, size: 30, color: '#000000', rotation: 90 },
-      { id: 'date', type: 'text', auto: 'date', x: 0.5, y: 0.979, size: 40, color: '#000000', font: 'englishPinyon', rotation: 0, weight: 'bold' },
+      { id: 'date', type: 'text', auto: 'date', x: 0.5, y: 0.979, size: 40, color: '#000000', font: 'englishPinyon', rotation: 0, weight: 'bold', strength: 32 },
       { id: 'brand-ig-icon', type: 'image', src: 'assets/img/instagram-icon.png', x: 0.04, y: 0.855, size: 3.5, rotation: -90 },
-      { id: 'brand-handle', type: 'text', text: '#MEMORIES4U', x: 0.053, y: 0.813, size: 18, color: '#000000', font: 'sans', rotation: -90, weight: 'bold' },
-      { id: 'brand-phone', type: 'text', text: BRAND_PHONE, x: 0.053, y: 0.742, size: 18, color: '#000000', font: 'sans', rotation: -90, weight: 'bold' }
+      { id: 'brand-handle', type: 'text', text: '#MEMORIES4U', x: 0.053, y: 0.813, size: 18, color: '#000000', font: 'sans', rotation: -90, weight: 'bold', strength: 32 },
+      { id: 'brand-phone', type: 'text', text: BRAND_PHONE, x: 0.053, y: 0.742, size: 18, color: '#000000', font: 'sans', rotation: -90, weight: 'bold', strength: 32 }
     ]
   };
   var DEFAULT_WIDE_DESIGN = {
     marginTopPct: 0.044, marginSidePct: 0.036, footerPct: 0.24, cornerRadius: 8,
     layers: [
-      { id: 'title', type: 'text', auto: 'title', x: 0.502, y: 0.892, size: 5.2, color: '#000000', font: 'englishParisienne', rotation: 0, weight: '' },
+      { id: 'title', type: 'text', auto: 'title', x: 0.502, y: 0.892, size: 5.2, color: '#000000', font: 'englishParisienne', rotation: 0, weight: '', strength: 0 },
       { id: 'heart', type: 'emoji', text: '♥', x: 0.5, y: 0.925, size: 3, color: '#000000', rotation: 90 },
-      { id: 'date', type: 'text', auto: 'date', x: 0.5, y: 0.967, size: 4.8, color: '#000000', font: 'englishPinyon', rotation: 0, weight: '600' },
+      { id: 'date', type: 'text', auto: 'date', x: 0.5, y: 0.967, size: 4.8, color: '#000000', font: 'englishPinyon', rotation: 0, weight: '600', strength: 32 },
       { id: 'brand-ig-icon', type: 'image', src: 'assets/img/instagram-icon.png', x: 0.02, y: 0.805, size: 2.2, rotation: -90 },
-      { id: 'brand-handle', type: 'text', text: '#MEMORIES4U', x: 0.03, y: 0.76, size: 1.6, color: '#000000', font: 'sans', rotation: -90, weight: '600' },
-      { id: 'brand-phone', type: 'text', text: BRAND_PHONE, x: 0.03, y: 0.686, size: 1.6, color: '#000000', font: 'sans', rotation: -90, weight: '600' }
+      { id: 'brand-handle', type: 'text', text: '#MEMORIES4U', x: 0.03, y: 0.76, size: 1.6, color: '#000000', font: 'sans', rotation: -90, weight: '600', strength: 32 },
+      { id: 'brand-phone', type: 'text', text: BRAND_PHONE, x: 0.03, y: 0.686, size: 1.6, color: '#000000', font: 'sans', rotation: -90, weight: '600', strength: 32 }
     ]
   };
 
@@ -730,6 +730,47 @@
     localStorage.setItem(DESIGN_SYNC_V1_DONE_KEY, '1');
   }
   syncSavedDesignsToTodaysDefaults();
+
+  // Second one-time pass, separate from V1 above (which already ran and
+  // won't run again) - backfills the new per-layer "strength" field
+  // (the color-strength slider) on any layer that doesn't have one yet,
+  // using the same starting point as today's defaults for that layer id.
+  // Deliberately lighter-touch than V1: only adds the missing field,
+  // never overwrites position/size/color someone may have since tuned.
+  var DESIGN_SYNC_V2_DONE_KEY = 'm4u_design_sync_v2_done';
+  function backfillLayerStrength() {
+    if (localStorage.getItem(DESIGN_SYNC_V2_DONE_KEY)) return;
+    var STRENGTH_BY_ID = { date: 32, 'brand-handle': 32, 'brand-phone': 32 };
+    function fixLayers(layers) {
+      var changed = false;
+      (layers || []).forEach(function (layer) {
+        if (layer && layer.type === 'text' && layer.strength == null) {
+          layer.strength = STRENGTH_BY_ID[layer.id] || 0;
+          changed = true;
+        }
+      });
+      return changed;
+    }
+    [STRIP_DESIGN_KEY, WIDE_DESIGN_KEY].forEach(function (key) {
+      try {
+        var raw = localStorage.getItem(key);
+        if (!raw) return;
+        var design = JSON.parse(raw);
+        if (fixLayers(design.layers)) localStorage.setItem(key, JSON.stringify(design));
+      } catch (e) {}
+    });
+    try {
+      var events = getSavedEvents();
+      var anyChanged = false;
+      events.forEach(function (entry) {
+        if (entry.setup && entry.setup.stripDesign && fixLayers(entry.setup.stripDesign.layers)) anyChanged = true;
+        if (entry.setup && entry.setup.wideDesign && fixLayers(entry.setup.wideDesign.layers)) anyChanged = true;
+      });
+      if (anyChanged) setSavedEvents(events);
+    } catch (e) {}
+    localStorage.setItem(DESIGN_SYNC_V2_DONE_KEY, '1');
+  }
+  backfillLayerStrength();
 
   // Converts a design saved before the layer system existed (flat
   // titleX/heartSize/brandColor... fields) into the new layers array,
@@ -935,23 +976,26 @@
       var metrics = ctx.measureText(text);
       // Most of the loaded webfonts only ship a single weight (see the
       // Google Fonts <link> in index.html), so asking the browser for a
-      // real bold face is a no-op for them - it silently keeps using the
-      // one weight that's loaded. A faux-bold stroke pass thickens the
-      // glyphs on the canvas itself instead, so the B toggle looks the
-      // same regardless of which font style is selected.
-      var isBold = layer.type === 'text' && !!layer.weight;
-      if (isBold) {
+      // real bold face is mostly a no-op for them - it silently keeps
+      // using the one weight that's loaded, which is why "B" alone barely
+      // changes how dark a thin script font prints. The "עוצמת צבע" slider
+      // (layer.strength, 0-100) is the real fix: an extra stroke pass in
+      // the same fillStyle color, laid down BEFORE the fill, that thickens
+      // the glyph on the canvas itself - continuous and independent of
+      // the B toggle, so it works whether or not weight is set.
+      var strength = layer.type === 'text' ? (layer.strength || 0) : 0;
+      if (strength > 0) {
         ctx.strokeStyle = layer.color;
-        ctx.lineWidth = Math.max(1, sizePx * 0.035);
+        ctx.lineWidth = Math.max(0.5, sizePx * (strength / 100) * 0.11);
         ctx.lineJoin = 'round';
       }
       if (layer.rotation) {
         ctx.translate(px, py);
         ctx.rotate(layer.rotation * Math.PI / 180);
-        if (isBold) ctx.strokeText(text, 0, 0);
+        if (strength > 0) ctx.strokeText(text, 0, 0);
         ctx.fillText(text, 0, 0);
       } else {
-        if (isBold) ctx.strokeText(text, px, py);
+        if (strength > 0) ctx.strokeText(text, px, py);
         ctx.fillText(text, px, py);
       }
       ctx.restore();
@@ -2379,6 +2423,21 @@
       });
       crow.appendChild(color);
       wrap.appendChild(crow);
+    }
+
+    // Separate from the "B" (bold font) toggle above - this thickens the
+    // chosen color itself with an extra stroke pass on the canvas, from
+    // the thinnest possible rendering (0) up to the strongest ink
+    // coverage that still looks like text and not a blob (100). Built
+    // specifically because a thin script font in true black can still
+    // print looking weak/faded on the DNP printer, and toggling "B" barely
+    // helps most of these webfonts (see the comment in renderLayers).
+    if (layer.type === 'text') {
+      wrap.appendChild(buildLiveRangeRow('עוצמת צבע', layer.strength || 0, { min: 0, max: 100, step: 1 }, function (v) {
+        layer.strength = v;
+        saveDesign(currentDesignKey(), design);
+        renderDesignPreview();
+      }));
     }
 
     return wrap;
