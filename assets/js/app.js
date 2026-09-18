@@ -8,7 +8,6 @@
   var BRAND_HANDLE = '@memories4u';
   var BRAND_PHONE = '055-9696120';
   var GUEST_MESSAGE = 'תודה שבחרתם ב-Memories4U להיות חלק מהאירוע!\nהיה לנו לעונג ללוות אתכם ולתעד את הרגעים היפים.\nמצורפת התמונה שלכם באיכות מלאה, מוכנה לשימוש ולשיתוף.\nנתראה באירוע הבא ❤️\nMemories4U | ' + BRAND_PHONE;
-  var OWNER_MESSAGE = 'תודה שבחרתם ב-Memories4U להיות חלק מהאירוע שלכם.\nהיה לנו לעונג ללוות אתכם ולתעד את הרגעים היפים.\nמצורפות כל התמונות באיכות מלאה, מוכנות לשימוש ולשיתוף.\nנתראה באירוע הבא\n' + BRAND_PHONE;
   var FONT_OPTIONS = {
     script1: { label: 'כתב יד קלאסי', family: '"Great Vibes", cursive', noHebrew: true },
     script2: { label: 'כתב יד עגול', family: '"Dancing Script", cursive', noHebrew: true },
@@ -167,7 +166,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260918b';
+  var APP_VERSION = '20260918f';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -401,14 +400,21 @@
   $('brb-toggle-btn').addEventListener('click', function () {
     setBrbActive(localStorage.getItem(BRB_KEY) !== '1');
   });
-  // The overlay's own small gear (same corner as the welcome screen's) is
-  // the only way back into settings once BRB is on - without it, turning
-  // BRB on would strand staff outside the app. Password-gated so a guest
-  // who notices and taps it still can't "wander into settings" (the exact
-  // thing this overlay exists to prevent) - only someone who knows the
-  // admin password gets through.
+  // The overlay's own gear (same corner as the welcome screen's) is the
+  // only way back once BRB is on - without it, turning BRB on would
+  // strand staff outside the app. Password-gated so a guest who notices
+  // and taps it still can't "wander into settings" (the exact thing this
+  // overlay exists to prevent) - only someone who knows the admin
+  // password gets through. On success it turns BRB off and drops straight
+  // onto the home screen (not into the settings panel) - typing the
+  // password here means "I'm back", so it should hand back the whole
+  // normal app immediately, gallery included, not one more menu to dig
+  // through and close before anything else becomes reachable again.
   $('brb-settings-btn').addEventListener('click', function () {
-    openAdminModal(openSettingsPanel);
+    openAdminModal(function () {
+      setBrbActive(false);
+      showScreen('screen-welcome');
+    });
   });
   $('settings-close-btn').addEventListener('click', function () {
     $('settings-panel').classList.remove('active');
@@ -1725,6 +1731,55 @@
     showScreen('screen-result');
   }
 
+  // The fab icon columns sit a fixed distance in from the SCREEN edge
+  // (see .result-fab-col/-right in the CSS) - tuned so the physical booth
+  // enclosure around the iPad doesn't block them. That fixed distance
+  // only leaves clear space next to a strip photo, which renders narrow
+  // with wide margins either side; a wide photo (composeWide) renders
+  // much closer to the screen's full width, so the same fixed offset
+  // lands the icons on top of it instead of beside it. Rather than a
+  // second fixed offset that would just be wrong for some other viewport
+  // size, this measures the photo's ACTUAL on-screen edges after every
+  // render and only pulls the icons in from the enclosure-clearance
+  // default when the photo itself needs more room than that leaves -
+  // strip photos (which never need it) are untouched.
+  function positionResultFabColumns() {
+    if (!$('screen-result').classList.contains('active')) return;
+    var wrap = document.querySelector('.result-photo-wrap');
+    var img = $('result-canvas-view');
+    var fabL = document.querySelector('.result-fab-col');
+    var fabR = document.querySelector('.result-fab-col-right');
+    if (!wrap || !img || !fabL || !fabR || !img.naturalWidth) return;
+    fabL.style.left = '';
+    fabR.style.right = '';
+    var wrapRect = wrap.getBoundingClientRect();
+    var imgRect = img.getBoundingClientRect();
+    var gap = 12; // breathing room between the icon column and the photo's own edge
+    var hardFloor = 12; // never closer to the physical screen edge than the base margin
+    var cssLeft = fabL.getBoundingClientRect().left - wrapRect.left;
+    var maxAllowedLeft = (imgRect.left - wrapRect.left) - fabL.getBoundingClientRect().width - gap;
+    if (maxAllowedLeft < cssLeft) fabL.style.left = Math.max(hardFloor, maxAllowedLeft) + 'px';
+    var cssRight = wrapRect.right - fabR.getBoundingClientRect().right;
+    var maxAllowedRight = (wrapRect.right - imgRect.right) - fabR.getBoundingClientRect().width - gap;
+    if (maxAllowedRight < cssRight) fabR.style.right = Math.max(hardFloor, maxAllowedRight) + 'px';
+    // Prev/next are meant to sit overlaid ON the photo, just inside its own
+    // edge (see the comment on .result-nav-btn in the CSS) - they used a
+    // fixed screen-edge offset tuned to clear the OLD fixed fab column
+    // position, so once the fab columns above started moving inward for a
+    // wide photo, that fixed offset put these arrows right where the fab
+    // icons now sit instead of clearing them. Anchoring to the photo's own
+    // measured edge keeps them inside the photo and clear of the fab
+    // column in both modes, since the fab column is now never closer to
+    // the screen edge than the photo's own edge.
+    var navPrev = $('result-prev-btn');
+    var navNext = $('result-next-btn');
+    var navInset = 16;
+    if (navPrev) navPrev.style.left = Math.round((imgRect.left - wrapRect.left) + navInset) + 'px';
+    if (navNext) navNext.style.right = Math.round((wrapRect.right - imgRect.right) + navInset) + 'px';
+  }
+  $('result-canvas-view').addEventListener('load', positionResultFabColumns);
+  window.addEventListener('resize', positionResultFabColumns);
+
   $('result-back-btn').addEventListener('click', function () {
     showScreen(resultReturnScreen);
     if (resultReturnScreen === 'screen-camera') startCamera();
@@ -2118,6 +2173,7 @@
     var isGuestGallery = galleryReturnScreen === 'screen-result';
     $('gallery-admin-toolbar').style.display = isGuestGallery ? 'none' : '';
     $('export-all-btn').style.display = isGuestGallery ? 'none' : '';
+    $('gallery-admin-exit-group').style.display = isGuestGallery ? '' : 'none';
     showScreen('screen-gallery');
     renderGalleryGrid();
   }
@@ -2192,6 +2248,11 @@
       reopenSettingsAfterScreen = false;
       openSettingsPanel();
     }
+  });
+  // Password-gated escape from the guest-facing gallery straight to the
+  // home screen - see the markup comment above gallery-admin-exit-group.
+  $('gallery-admin-exit-btn').addEventListener('click', function () {
+    openAdminModal(function () { showScreen('screen-welcome'); });
   });
   $('gallery-select-btn').addEventListener('click', function () {
     gallerySelectMode = !gallerySelectMode;
@@ -3075,19 +3136,18 @@
   // client/Photos app opens natively without a second step. Falls back to
   // the zip only when the browser can't share multiple files at once, so
   // there's still a way to get a single downloadable file.
+  // Downloads straight to the device instead of going through
+  // navigator.share - sharing many files (or even one large zip) hands
+  // the choice of destination app to iOS itself, and on this iPad that
+  // keeps landing on Google Drive, where the photos are unreachable
+  // without being logged into an account. A direct download has no app
+  // picker at all: the zip lands in the Files app's own "הורדות"
+  // (Downloads) folder every time, fully under staff's control, and iOS
+  // Files can extract a zip natively (tap it) with no other app needed.
   function exportEventZip(eventName, onDone) {
     dbAllForEvent(eventName).then(function (rows) {
       if (!rows.length) {
         toast('אין תמונות לייצוא');
-        return;
-      }
-      var files = rows.map(function (row, i) {
-        var num = String(rows.length - i).padStart(3, '0');
-        return new File([row.blob], 'memories4u-' + num + '.jpg', { type: 'image/jpeg' });
-      });
-      if (navigator.canShare && navigator.canShare({ files: files })) {
-        navigator.share({ files: files, title: 'Memories4U', text: OWNER_MESSAGE }).catch(function () {});
-        if (onDone) onDone();
         return;
       }
       toast('מכין קובץ...');
@@ -3098,16 +3158,11 @@
       });
       zip.generateAsync({ type: 'blob' }).then(function (zipBlob) {
         var fileName = 'memories4u-event-photos.zip';
-        var file = new File([zipBlob], fileName, { type: 'application/zip' });
-        if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          navigator.share({ files: [file], title: 'Memories4U', text: OWNER_MESSAGE }).catch(function () {});
-        } else {
-          var a = document.createElement('a');
-          a.href = URL.createObjectURL(zipBlob);
-          a.download = fileName;
-          a.click();
-          toast('הקובץ הורד למכשיר');
-        }
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(zipBlob);
+        a.download = fileName;
+        a.click();
+        toast('הקובץ ירד לתיקיית "הורדות" באפליקציית הקבצים - הקשה עליו שם תחלץ את כל התמונות');
         if (onDone) onDone();
       });
     });

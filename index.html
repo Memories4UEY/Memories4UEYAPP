@@ -22,7 +22,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="assets/css/style.css?v=20260918b">
+<link rel="stylesheet" href="assets/css/style.css?v=20260918f">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Dancing+Script:wght@600&family=Playfair+Display:ital@1&family=Amatic+SC:wght@700&family=Caveat:wght@600&family=Cormorant+Garamond:ital@1&family=Suez+One&family=Frank+Ruhl+Libre:ital,wght@0,500;1,500&family=Bellefair&family=Miriam+Libre:wght@700&family=Secular+One&family=Heebo:wght@700&family=David+Libre:wght@700&family=Alex+Brush&family=Allura&family=Parisienne&family=Tangerine:wght@700&family=Pinyon+Script&family=Mrs+Saint+Delafield&family=Sacramento&family=Yellowtail&display=swap">
 <style>
   html, body {
@@ -189,6 +189,17 @@
     justify-content: center;
     font-size: 24px;
     cursor: pointer;
+  }
+  /* Bigger and fully opaque (the shared rule above dims icon buttons to
+     .8 so they don't distract on the welcome screen) - this is the ONLY
+     way back once BRB is on, on a screen that's otherwise a plain black
+     background, so it needs to be easy to spot at a glance, not blend in. */
+  #brb-settings-btn {
+    opacity: 1;
+    width: 72px;
+    height: 72px;
+    font-size: 32px;
+    border-color: var(--color-gold-soft);
   }
   /* No solid card behind the text - on some background photos it showed
      up as an ugly visible gray box. Legibility comes from the scrim
@@ -1409,6 +1420,14 @@
       <button class="icon-btn" id="export-all-btn" aria-label="ייצוא כל התמונות" title="ייצוא כל התמונות">📦</button>
       <span class="icon-btn-label">ייצוא</span>
     </div>
+    <!-- Only shown in the guest-facing gallery (reached from a guest's own
+         result screen, no password) - that view's back button always
+         returns to that same photo, which otherwise leaves staff with no
+         way out to admin settings if they end up here themselves. -->
+    <div class="icon-btn-group" id="gallery-admin-exit-group" style="display:none">
+      <button class="icon-btn" id="gallery-admin-exit-btn" aria-label="הגדרות מנהל" title="הגדרות מנהל">⚙️</button>
+      <span class="icon-btn-label">הגדרות</span>
+    </div>
   </div>
   <div class="gallery-toolbar" id="gallery-admin-toolbar">
     <button class="btn btn-ghost" id="gallery-select-btn">☑ בחירה</button>
@@ -1522,6 +1541,6 @@
 <script src="assets/js/jszip.min.js"></script>
 <script src="assets/js/qrcode-generator.js"></script>
 <script src="assets/js/gifenc.js"></script>
-<script src="assets/js/app.js?v=20260918b"></script>
+<script src="assets/js/app.js?v=20260918f"></script>
 </body>
 </html>
