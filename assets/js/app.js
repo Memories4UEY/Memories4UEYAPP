@@ -2,7 +2,7 @@
   'use strict';
 
   // ---------- Config ----------
-  var PASSWORD_HASH = '03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4'; // sha256("1234")
+  var PASSWORD_HASH = '56533080816acfbf988d15e31399b7ba108b2e525abc68387256075d6f8d2693'; // sha256("2526")
   var BOOTH_TOKEN = 'm4u-booth-2026';
   var UNLOCK_KEY = 'm4u_booth_unlocked';
   var BRAND_HANDLE = '@memories4u';
@@ -167,7 +167,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260916n';
+  var APP_VERSION = '20260918b';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -387,6 +387,29 @@
     setActiveEventName('');
     toast('האירוע הפעיל נוקה - יידרש לטעון אירוע כדי לצלם');
   });
+  // Staff-only "step away" toggle - covers the whole screen so a guest
+  // never sees an idle camera (or worse, wanders into settings) while
+  // nobody's there to help. Persisted so an accidental reload while staff
+  // is away doesn't silently drop the guard and expose the camera.
+  var BRB_KEY = 'm4u_brb_active';
+  function setBrbActive(active) {
+    localStorage.setItem(BRB_KEY, active ? '1' : '');
+    $('brb-overlay').classList.toggle('active', active);
+    $('brb-toggle-btn').textContent = active ? '✅ חזרתי - סגירת ההודעה' : '🚻 תכף נשוב';
+  }
+  setBrbActive(localStorage.getItem(BRB_KEY) === '1');
+  $('brb-toggle-btn').addEventListener('click', function () {
+    setBrbActive(localStorage.getItem(BRB_KEY) !== '1');
+  });
+  // The overlay's own small gear (same corner as the welcome screen's) is
+  // the only way back into settings once BRB is on - without it, turning
+  // BRB on would strand staff outside the app. Password-gated so a guest
+  // who notices and taps it still can't "wander into settings" (the exact
+  // thing this overlay exists to prevent) - only someone who knows the
+  // admin password gets through.
+  $('brb-settings-btn').addEventListener('click', function () {
+    openAdminModal(openSettingsPanel);
+  });
   $('settings-close-btn').addEventListener('click', function () {
     $('settings-panel').classList.remove('active');
     flushActiveEventSync();
@@ -543,7 +566,7 @@
     var loadBtn = document.createElement('button');
     loadBtn.type = 'button';
     loadBtn.className = 'btn btn-ghost';
-    loadBtn.innerHTML = '📂<span class="btn-icon-label">טעינה</span>';
+    loadBtn.innerHTML = '🔃<span class="btn-icon-label">טעינה</span>';
     loadBtn.addEventListener('click', function () {
       applySavedSetup(entry.setup, entry.name);
       renderGalleryGrid();
@@ -744,8 +767,17 @@
       audio: false,
       video: {
         facingMode: { ideal: 'user' },
-        width: { ideal: 1440 },
-        height: { ideal: 1920 }
+        // "ideal" is a soft ask, not a hard requirement - the browser
+        // settles for whatever the actual camera's real maximum is, it
+        // doesn't fail if that's lower. Deliberately asking for far more
+        // than any iPad camera can give (was capped at 1440x1920 before,
+        // well under most cameras' real max) guarantees we always get
+        // that true maximum instead of an arbitrary lower ceiling - this
+        // is also the direct fix for photos looking blurry/soft when a
+        // guest pinch-zooms into a QR-shared photo, since that's the same
+        // pixels just spread across a bigger view.
+        width: { ideal: 3000 },
+        height: { ideal: 4000 }
       }
     }).then(function (s) {
       stream = s;
@@ -789,6 +821,45 @@
     ctx.drawImage(video, 0, 0, vw, vh);
     ctx.restore();
     return canvas;
+  }
+
+  // rawFrame() grabs straight from the live <video> element with no check
+  // that it actually had a real frame ready at that instant - a momentary
+  // camera stream hiccup (seen live: strip printed with a blank white
+  // panel instead of the 3rd photo, which then jammed the printer) can
+  // produce an all-one-color capture. Sampling a handful of points is
+  // cheap and real photo content is essentially never uniform across all
+  // of them, so this catches a blank grab without falsely flagging a
+  // genuinely plain/blurry photo (which still varies pixel to pixel).
+  function isFrameBlank(canvas) {
+    var w = canvas.width, h = canvas.height;
+    if (!w || !h) return true;
+    var ctx = canvas.getContext('2d');
+    var points = [
+      [0.1, 0.1], [0.5, 0.1], [0.9, 0.1],
+      [0.1, 0.5], [0.5, 0.5], [0.9, 0.5],
+      [0.1, 0.9], [0.5, 0.9], [0.9, 0.9]
+    ];
+    var first = null;
+    for (var i = 0; i < points.length; i++) {
+      var d = ctx.getImageData(Math.floor(w * points[i][0]), Math.floor(h * points[i][1]), 1, 1).data;
+      var rgba = d[0] + ',' + d[1] + ',' + d[2] + ',' + d[3];
+      if (first === null) { first = rgba; }
+      else if (rgba !== first) { return false; }
+    }
+    return true;
+  }
+  // Re-grabs from the (already-running) video a few times, a beat apart,
+  // until a non-blank frame shows up - a blank capture is a momentary
+  // stream glitch, not a broken camera, so the very next grab is normally
+  // fine. Adds a small delay only in that rare case; normally resolves on
+  // the first try with no extra wait at all.
+  function captureFrameRetrying(attemptsLeft) {
+    var frame = rawFrame();
+    if (!isFrameBlank(frame) || attemptsLeft <= 0) return Promise.resolve(frame);
+    return new Promise(function (r) { setTimeout(r, 120); }).then(function () {
+      return captureFrameRetrying(attemptsLeft - 1);
+    });
   }
 
   // Draws `img` into ctx covering the target rect (crop-to-fill), like CSS object-fit:cover.
@@ -1106,7 +1177,8 @@
     });
   }
 
-  function renderLayers(ctx, design, W, H, isWide, hits) {
+  function renderLayers(ctx, design, W, H, isWide, hits, scale) {
+    scale = scale || 1;
     preloadDesignImages(design);
     var info = getEventInfo();
     design.layers.forEach(function (layer) {
@@ -1135,7 +1207,7 @@
       if (!text) return;
 
       var px = layer.x * W, py = layer.y * H;
-      var sizePx = isWide ? Math.max(1, Math.round(W * (layer.size / 100))) : layer.size;
+      var sizePx = isWide ? Math.max(1, Math.round(W * (layer.size / 100))) : Math.round(layer.size * scale);
       var font;
       if (layer.type === 'emoji') {
         // A plain system font is tried FIRST, not an emoji font - most of
@@ -1246,10 +1318,20 @@
   }
 
   // Classic 3-photo vertical strip with event title/date + brand footer,
-  // matching the printed kraft-card strips (600x1800px = 2x6in @ 300dpi).
+  // matching the printed kraft-card strips (2x6in). Rendered at
+  // STRIP_SCALE times the original 600x1800@300dpi canvas so shared/QR
+  // photos hold up to zoom - every DEFAULT_STRIP_DESIGN/saved-design
+  // number below is a raw pixel count tuned against the original 600px
+  // width, so it's scaled up here by the same factor at render time only.
+  // DEFAULT_STRIP_DESIGN and every saved event's stripDesign stay exactly
+  // as stored; this never writes the scaled numbers back anywhere, so the
+  // print bridge's own scale-to-fit-page logic (unaffected by source
+  // pixel count, only by aspect ratio, which is unchanged) still lines
+  // up the same as always.
+  var STRIP_SCALE = 3;
   function composeStrip(frames, design, hits) {
     design = design || getStripDesign();
-    var W = 600, H = 1800;
+    var W = 600 * STRIP_SCALE, H = 1800 * STRIP_SCALE;
     var canvas = document.createElement('canvas');
     canvas.width = W;
     canvas.height = H;
@@ -1258,21 +1340,25 @@
     ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(0, 0, W, H);
 
+    var sideTextW = design.sideTextW * STRIP_SCALE, innerPad = design.innerPad * STRIP_SCALE;
+    var topMargin = design.topMargin * STRIP_SCALE, gap = design.gap * STRIP_SCALE;
+    var footerH = design.footerH * STRIP_SCALE, cornerRadius = design.cornerRadius * STRIP_SCALE;
+
     // narrow blank side margins, like the printed kraft-paper strips
-    var cellX = design.sideTextW + design.innerPad;
+    var cellX = sideTextW + innerPad;
     var cellW = W - cellX * 2;
-    var cellH = Math.floor((H - design.topMargin - design.footerH - design.gap * (frames.length - 1)) / frames.length);
+    var cellH = Math.floor((H - topMargin - footerH - gap * (frames.length - 1)) / frames.length);
 
     frames.forEach(function (frame, i) {
-      var cy = design.topMargin + i * (cellH + design.gap);
+      var cy = topMargin + i * (cellH + gap);
       ctx.save();
-      roundRectPath(ctx, cellX, cy, cellW, cellH, design.cornerRadius);
+      roundRectPath(ctx, cellX, cy, cellW, cellH, cornerRadius);
       ctx.clip();
       drawCover(ctx, frame, cellX, cy, cellW, cellH);
       ctx.restore();
     });
 
-    renderLayers(ctx, design, W, H, false, hits);
+    renderLayers(ctx, design, W, H, false, hits, STRIP_SCALE);
     return canvas;
   }
 
@@ -1320,7 +1406,7 @@
 
   function canvasToBlob(canvas) {
     return new Promise(function (resolve) {
-      canvas.toBlob(function (blob) { resolve(blob); }, 'image/jpeg', 0.92);
+      canvas.toBlob(function (blob) { resolve(blob); }, 'image/jpeg', 0.95);
     });
   }
 
@@ -1359,7 +1445,7 @@
           el.style.opacity = '0';
           ringEl.classList.remove('running');
           flashOnce();
-          resolve(rawFrame());
+          captureFrameRetrying(3).then(resolve);
         }
       }
       step();
@@ -1623,7 +1709,17 @@
       $('camera-last-photo-thumb').src = resultUrl;
       $('camera-last-photo-group').style.display = '';
     }
+    // Prev/next through the gallery - staff only (never for a guest's own
+    // just-taken photo, or a guest browsing the guest-facing gallery).
+    var showNav = !fromCapture && galleryReturnScreen !== 'screen-result' && galleryRowIndex !== -1;
+    $('result-prev-btn').style.display = showNav ? '' : 'none';
+    $('result-next-btn').style.display = showNav ? '' : 'none';
+    if (showNav) {
+      $('result-prev-btn').disabled = galleryRowIndex <= 0;
+      $('result-next-btn').disabled = galleryRowIndex >= galleryRows.length - 1;
+    }
     printCopies = 1;
+    printAttemptsByCopies = {};
     $('copies-count').textContent = printCopies;
     stopCamera();
     showScreen('screen-result');
@@ -1632,6 +1728,20 @@
   $('result-back-btn').addEventListener('click', function () {
     showScreen(resultReturnScreen);
     if (resultReturnScreen === 'screen-camera') startCamera();
+  });
+  $('result-prev-btn').addEventListener('click', function () {
+    if (galleryRowIndex <= 0) return;
+    galleryRowIndex--;
+    var row = galleryRows[galleryRowIndex];
+    currentPhotoId = row.id;
+    openResult(row.blob, false, row.gifBlob);
+  });
+  $('result-next-btn').addEventListener('click', function () {
+    if (galleryRowIndex >= galleryRows.length - 1) return;
+    galleryRowIndex++;
+    var row = galleryRows[galleryRowIndex];
+    currentPhotoId = row.id;
+    openResult(row.blob, false, row.gifBlob);
   });
   $('btn-retake').addEventListener('click', function () {
     showScreen('screen-camera');
@@ -1678,35 +1788,56 @@
   // Converts pixel-by-pixel rather than relying on the canvas filter API
   // (ctx.filter), which isn't reliably supported on every iPad/Safari
   // version and would otherwise fail silently with no visible change.
-  var bwBlobCache = null; // memoizes the conversion of currentColorBlob
+  var bwBlobCache = null; // memoizes the conversion for the current photo
+  // Grayscales a raw captured frame (a canvas, not yet composited with the
+  // white card/logo/text) - used so B&W only ever touches the actual
+  // photo, never the card frame or branding drawn around it.
+  function toGrayscaleCanvas(src, w, h) {
+    w = w || src.width;
+    h = h || src.height;
+    var c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    var ctx = c.getContext('2d');
+    ctx.drawImage(src, 0, 0, w, h);
+    var imageData = ctx.getImageData(0, 0, c.width, c.height);
+    var data = imageData.data;
+    for (var i = 0; i < data.length; i += 4) {
+      var gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+      data[i] = data[i + 1] = data[i + 2] = gray;
+    }
+    ctx.putImageData(imageData, 0, 0);
+    return c;
+  }
+  // Fallback for a photo reopened from the gallery (its raw frames are
+  // long gone) - grayscales the whole flattened image, frame and all,
+  // same as before. Only the live just-captured photo (below) gets the
+  // "photo only" treatment, since only it still has raw frames to
+  // recomposite from.
   function toGrayscaleBlob(blob) {
     return new Promise(function (resolve) {
       var img = new Image();
       img.onload = function () {
-        var c = document.createElement('canvas');
-        c.width = img.naturalWidth;
-        c.height = img.naturalHeight;
-        var ctx = c.getContext('2d');
-        ctx.drawImage(img, 0, 0);
-        var imageData = ctx.getImageData(0, 0, c.width, c.height);
-        var data = imageData.data;
-        for (var i = 0; i < data.length; i += 4) {
-          var gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
-          data[i] = data[i + 1] = data[i + 2] = gray;
-        }
-        ctx.putImageData(imageData, 0, 0);
+        var gray = toGrayscaleCanvas(img, img.naturalWidth, img.naturalHeight);
         URL.revokeObjectURL(img.src);
-        c.toBlob(function (grayBlob) { resolve(grayBlob); }, 'image/jpeg', 0.92);
+        gray.toBlob(function (grayBlob) { resolve(grayBlob); }, 'image/jpeg', 0.95);
       };
       img.src = URL.createObjectURL(blob);
     });
+  }
+  function grayscaleComposedPhoto() {
+    if (!currentPhotoIsLive) return toGrayscaleBlob(currentColorBlob);
+    var canvas = captureMode === 'strip'
+      ? composeStrip(lastStripFrames.map(function (f) { return toGrayscaleCanvas(f); }))
+      : composeWide(toGrayscaleCanvas(lastWideFrame));
+    return canvasToBlob(canvas);
   }
   $('btn-bw').addEventListener('click', function () {
     if (!currentColorBlob) return;
     var btn = this;
     btn.disabled = true;
     var goingToBw = !isBw;
-    var photoNext = goingToBw ? (bwBlobCache ? Promise.resolve(bwBlobCache) : toGrayscaleBlob(currentColorBlob)) : Promise.resolve(currentColorBlob);
+    var photoNext = goingToBw ? (bwBlobCache ? Promise.resolve(bwBlobCache) : grayscaleComposedPhoto()) : Promise.resolve(currentColorBlob);
     // The GIF (if this was a strip capture) is toggled the same way, so
     // sharing/downloading it after B&W matches what's shown on screen -
     // it used to always send the original color GIF regardless.
@@ -1891,11 +2022,20 @@
   // - an older gallery photo's raw frames aren't kept around.
   function recomposeCurrentPhotoFromDesign() {
     if (!currentPhotoIsLive) return Promise.resolve(currentBlob);
-    var canvas = captureMode === 'strip' ? composeStrip(lastStripFrames) : composeWide(lastWideFrame);
-    return canvasToBlob(canvas).then(function (colorBlob) {
+    var colorCanvas = captureMode === 'strip' ? composeStrip(lastStripFrames) : composeWide(lastWideFrame);
+    // Grayscale the raw frame(s) and recompose separately from the color
+    // version, rather than greying the finished color composite - same
+    // reason as grayscaleComposedPhoto above: B&W must only touch the
+    // photo, not the white card/logo/text drawn around it.
+    var bwCanvas = isBw
+      ? (captureMode === 'strip'
+          ? composeStrip(lastStripFrames.map(function (f) { return toGrayscaleCanvas(f); }))
+          : composeWide(toGrayscaleCanvas(lastWideFrame)))
+      : null;
+    return canvasToBlob(colorCanvas).then(function (colorBlob) {
       currentColorBlob = colorBlob;
       bwBlobCache = null;
-      return isBw ? toGrayscaleBlob(colorBlob) : colorBlob;
+      return isBw ? canvasToBlob(bwCanvas) : colorBlob;
     }).then(function (finalBlob) {
       currentBlob = finalBlob;
       if (isBw) bwBlobCache = finalBlob;
@@ -1907,8 +2047,18 @@
     });
   }
 
-  $('btn-print').addEventListener('click', function () {
-    if (!currentBlob) return;
+  // A guest mashing "4 עותקים"/"5 עותקים" repeatedly for the SAME photo
+  // was seen live printing ~30 copies of one photo before anyone noticed.
+  // Every copy count now has a free allowance before it starts asking for
+  // the staff password on the SAME photo: 1-3 copies (a normal reprint)
+  // get 2 free prints each before the 3rd+ needs a password; 4-5 copies
+  // (almost always accidental/spam at that volume) get only 1 free print
+  // before the 2nd+ needs one. Tracked separately per exact copy count
+  // (printing "2 copies" twice doesn't use up "3 copies"'s allowance).
+  // Resets whenever a different photo is opened (see openResult).
+  var printAttemptsByCopies = {};
+  function freePrintsAllowed(copies) { return copies <= 3 ? 2 : 1; }
+  function doPrint() {
     recomposeCurrentPhotoFromDesign().then(function () {
       var bridge = printBridgeUrl();
       if (!bridge) {
@@ -1930,6 +2080,20 @@
         window.print();
       });
     });
+  }
+  $('btn-print').addEventListener('click', function () {
+    if (!currentBlob) return;
+    var copies = printCopies;
+    var used = printAttemptsByCopies[copies] || 0;
+    if (used >= freePrintsAllowed(copies)) {
+      openAdminModal(function () {
+        printAttemptsByCopies[copies] = used + 1;
+        doPrint();
+      });
+      return;
+    }
+    printAttemptsByCopies[copies] = used + 1;
+    doPrint();
   });
 
   // ---------- Gallery ----------
@@ -1963,14 +2127,22 @@
   // resolve after a newer one already redrew the grid and append a
   // second, stale, duplicate set of items on top of it.
   var galleryRenderGen = 0;
+  // Kept so the result screen's ‹/› arrows can step to the next/previous
+  // photo without bouncing back to the grid each time - admin-only, a
+  // guest never has these arrows (see galleryReturnScreen below).
+  var galleryRows = [];
+  var galleryRowIndex = -1;
   function renderGalleryGrid() {
     var myGen = ++galleryRenderGen;
     var grid = $('gallery-grid');
     grid.innerHTML = '';
     $('gallery-selection-toolbar').style.display = gallerySelectMode ? 'flex' : 'none';
     $('gallery-select-btn').textContent = gallerySelectMode ? '✕ בטל בחירה' : '☑ בחירה';
+    var isGuestGallery = galleryReturnScreen === 'screen-result';
     dbAllForActiveEvent().then(function (rows) {
       if (myGen !== galleryRenderGen) return;
+      galleryRows = rows;
+      $('gallery-photo-count').textContent = isGuestGallery ? '' : (rows.length + ' תמונות');
       if (!rows.length) {
         var empty = document.createElement('div');
         empty.className = 'gallery-empty';
@@ -2004,6 +2176,7 @@
             renderGalleryGrid();
           } else {
             currentPhotoId = row.id;
+            galleryRowIndex = galleryRows.indexOf(row);
             openResult(row.blob, false, row.gifBlob);
           }
         });
@@ -2895,10 +3068,26 @@
 
   // ---------- Export a specific event's photos as one zip (to send to
   // the event owner) - eventName defaults to whatever's active. ----------
+  // A zipped export sent as a Mail attachment was reported not opening
+  // properly on the receiving end - rather than guess at exactly which
+  // step of zip-then-email misbehaves, this shares the photos as plain
+  // .jpg files directly (no zip involved at all), which every email
+  // client/Photos app opens natively without a second step. Falls back to
+  // the zip only when the browser can't share multiple files at once, so
+  // there's still a way to get a single downloadable file.
   function exportEventZip(eventName, onDone) {
     dbAllForEvent(eventName).then(function (rows) {
       if (!rows.length) {
         toast('אין תמונות לייצוא');
+        return;
+      }
+      var files = rows.map(function (row, i) {
+        var num = String(rows.length - i).padStart(3, '0');
+        return new File([row.blob], 'memories4u-' + num + '.jpg', { type: 'image/jpeg' });
+      });
+      if (navigator.canShare && navigator.canShare({ files: files })) {
+        navigator.share({ files: files, title: 'Memories4U', text: OWNER_MESSAGE }).catch(function () {});
+        if (onDone) onDone();
         return;
       }
       toast('מכין קובץ...');

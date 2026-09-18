@@ -22,7 +22,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="assets/css/style.css?v=20260916l">
+<link rel="stylesheet" href="assets/css/style.css?v=20260918b">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Dancing+Script:wght@600&family=Playfair+Display:ital@1&family=Amatic+SC:wght@700&family=Caveat:wght@600&family=Cormorant+Garamond:ital@1&family=Suez+One&family=Frank+Ruhl+Libre:ital,wght@0,500;1,500&family=Bellefair&family=Miriam+Libre:wght@700&family=Secular+One&family=Heebo:wght@700&family=David+Libre:wght@700&family=Alex+Brush&family=Allura&family=Parisienne&family=Tangerine:wght@700&family=Pinyon+Script&family=Mrs+Saint+Delafield&family=Sacramento&family=Yellowtail&display=swap">
 <style>
   html, body {
@@ -171,7 +171,12 @@
     color: var(--color-gold);
     text-shadow: 0 1px 6px rgba(0,0,0,.9), 0 1px 2px #000;
   }
-  #welcome-settings-btn, #ready-back-btn {
+  #brb-settings-btn {
+    position: absolute;
+    top: calc(14px + env(safe-area-inset-top));
+    left: calc(14px + env(safe-area-inset-left));
+  }
+  #welcome-settings-btn, #ready-back-btn, #brb-settings-btn {
     opacity: .8;
     width: 52px;
     height: 52px;
@@ -417,6 +422,12 @@
     letter-spacing: .04em;
     text-shadow: 0 1px 6px rgba(0,0,0,.9), 0 1px 2px #000;
   }
+  .gallery-title-wrap { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .gallery-count-label {
+    font-size: 11px;
+    color: var(--color-text-muted);
+    text-shadow: 0 1px 4px rgba(0,0,0,.9);
+  }
   .topbar .icon-btn {
     width: 40px; height: 40px;
     border-radius: 50%;
@@ -590,10 +601,10 @@
     background: var(--color-bg-alt);
   }
   #shutter-btn {
-    width: 80px; height: 80px;
+    width: 120px; height: 120px;
     border-radius: 50%;
     background: #fff;
-    border: 5px solid var(--color-gold-soft);
+    border: 6px solid var(--color-gold-soft);
     cursor: pointer;
     padding: 0;
     overflow: hidden;
@@ -635,7 +646,11 @@
   .result-fab-col {
     position: absolute;
     top: 50%;
-    left: 12px;
+    /* Pulled in further from the screen edge than a plain safe-area
+       inset would give - the physical booth enclosure/stand around the
+       iPad sits close enough to the glass that icons right at the edge
+       were getting physically blocked/hard to reach. */
+    left: calc(12px + env(safe-area-inset-left) + 44px);
     transform: translateY(-50%);
     display: flex;
     flex-direction: column;
@@ -645,13 +660,37 @@
   .result-fab-col-right {
     position: absolute;
     top: 50%;
-    right: 12px;
+    right: calc(12px + env(safe-area-inset-right) + 44px);
     transform: translateY(-50%);
     display: flex;
     flex-direction: column;
     gap: 20px;
     z-index: 4;
   }
+  /* Prev/next through the admin gallery without bouncing back to the grid
+     each time - staff only (never shown for a guest's own just-taken
+     photo). Overlaid on the photo itself, just inside the fab columns. */
+  .result-nav-btn {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: rgba(12,12,14,.6);
+    border: 1px solid var(--color-border);
+    color: var(--color-gold);
+    font-size: 26px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 5;
+    cursor: pointer;
+  }
+  .result-nav-btn[disabled] { opacity: .3; }
+  .result-nav-prev { left: calc(12px + env(safe-area-inset-left) + 44px + 60px); }
+  .result-nav-next { right: calc(12px + env(safe-area-inset-right) + 44px + 60px); }
   .fab-item {
     display: flex;
     flex-direction: column;
@@ -843,6 +882,38 @@
     transition: opacity .2s ease;
   }
   .toast.show { opacity: 1; }
+
+  /* ---- "Be right back" overlay ---- */
+  /* z-index sits BELOW #settings-panel (30) on purpose - otherwise
+     turning this on while settings happens to be open would bury the
+     one button that turns it back off. Still above every normal screen
+     (camera, welcome, result...), which is all it needs to hide. */
+  #brb-overlay {
+    position: fixed; inset: 0;
+    z-index: 25;
+    background: var(--color-bg);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 14px;
+    padding: 24px;
+  }
+  #brb-overlay.active { display: flex; }
+  #brb-overlay img { width: 96px; height: 96px; border-radius: 50%; }
+  #brb-overlay h1 {
+    font-family: var(--font-heading);
+    color: var(--color-gold);
+    font-size: 26px;
+    margin: 0;
+  }
+  #brb-overlay p {
+    color: var(--color-text-muted);
+    font-size: 15px;
+    margin: 0;
+    max-width: 320px;
+  }
 
   /* ---- Design editor ---- */
   #screen-design { background: var(--color-bg-alt); }
@@ -1100,6 +1171,7 @@
       <button type="button" class="btn btn-ghost" id="print-settings-btn">🖨️ כתובת הדפסה</button>
       <button type="button" class="btn btn-ghost" id="open-gallery-btn">🖼 גלריה</button>
     </div>
+    <button type="button" class="btn btn-ghost" id="brb-toggle-btn">🚻 תכף נשוב</button>
     <div class="active-event-row">
       <p id="active-event-label" class="active-event-label-big"></p>
       <button type="button" class="btn btn-ghost active-event-clear-btn" id="clear-active-event-btn" title="ניקוי האירוע הפעיל">✖</button>
@@ -1250,6 +1322,8 @@
   </div>
   <div class="result-photo-wrap">
     <img id="result-canvas-view" alt="התמונה שצולמה">
+    <button class="result-nav-btn result-nav-prev" id="result-prev-btn" aria-label="התמונה הקודמת" style="display:none">‹</button>
+    <button class="result-nav-btn result-nav-next" id="result-next-btn" aria-label="התמונה הבאה" style="display:none">›</button>
     <div class="result-fab-col">
       <div class="fab-item">
         <button class="fab-btn" id="btn-share" aria-label="שיתוף">
@@ -1327,7 +1401,10 @@
       <button class="icon-btn" id="gallery-back-btn" aria-label="חזרה למצלמה">‹</button>
       <span class="icon-btn-label">חזור</span>
     </div>
-    <span class="brand">כל התמונות</span>
+    <div class="gallery-title-wrap">
+      <span class="brand">כל התמונות</span>
+      <span id="gallery-photo-count" class="gallery-count-label"></span>
+    </div>
     <div class="icon-btn-group">
       <button class="icon-btn" id="export-all-btn" aria-label="ייצוא כל התמונות" title="ייצוא כל התמונות">📦</button>
       <span class="icon-btn-label">ייצוא</span>
@@ -1429,9 +1506,22 @@
 
 <div class="toast" id="toast"></div>
 
+<!-- ============ "BE RIGHT BACK" OVERLAY (staff toggles from settings).
+     Carries its own small gear button in the same corner as the welcome
+     screen's - the only way back into settings to turn this overlay back
+     off, so turning BRB on can't strand staff outside the app. Routed
+     through the admin password modal (see app.js) so a guest who notices
+     and taps it still can't wander into settings unsupervised. ============ -->
+<div id="brb-overlay">
+  <button type="button" class="icon-btn" id="brb-settings-btn" aria-label="הגדרות אירוע" title="הגדרות אירוע">⚙️</button>
+  <img src="assets/img/logo-ig.jpg" alt="">
+  <h1>תכף נשוב 🙂</h1>
+  <p>נעדרים לכמה רגעים - חוזרים תיכף!</p>
+</div>
+
 <script src="assets/js/jszip.min.js"></script>
 <script src="assets/js/qrcode-generator.js"></script>
 <script src="assets/js/gifenc.js"></script>
-<script src="assets/js/app.js?v=20260916n"></script>
+<script src="assets/js/app.js?v=20260918b"></script>
 </body>
 </html>
