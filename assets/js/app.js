@@ -166,7 +166,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260918w';
+  var APP_VERSION = '20260918y';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -1237,6 +1237,13 @@
     var waits = [];
     design.layers.forEach(function (layer) {
       if (layer.type === 'image' && layer.src) waits.push(preloadLayerImage(layer.src).promise);
+      // A webfont that hasn't been used yet isn't loaded, and canvas text
+      // silently falls back to a default font - so the first photo could
+      // print its title/date in the wrong typeface. Load it up front.
+      if (layer.type === 'text' && document.fonts && document.fonts.load) {
+        var opt = FONT_OPTIONS[layer.font] || FONT_OPTIONS.sans;
+        waits.push(document.fonts.load((layer.weight ? layer.weight + ' ' : '') + '40px ' + opt.family, layer.text || 'אבג abc').catch(function () {}));
+      }
     });
     if (!waits.length) return Promise.resolve();
     return Promise.race([Promise.all(waits), new Promise(function (r) { setTimeout(r, 5000); })]);
@@ -1765,6 +1772,7 @@
   // leave the card, logo and text in color. Saved with each photo at capture;
   // photos from before this was saved have none and fall back to whole-image.
   var currentPhotoRects = null;
+  var resultViaLastPhotoThumb = false;
   // The guest's own just-taken photo - the fixed "home" of the guest-facing
   // album, so backing out of the album always lands there (whose back arrow
   // goes to the camera) instead of on whichever photo was opened last.
@@ -1772,6 +1780,8 @@
   function openResult(blob, fromCapture, gifBlob) {
     resultReturnScreen = fromCapture ? 'screen-camera' : 'screen-gallery';
     currentPhotoIsLive = !!fromCapture;
+    resultViaLastPhotoThumb = false;
+    $('btn-bw').disabled = false;
     currentBlob = blob;
     currentColorBlob = blob;
     isBw = false;
@@ -1876,6 +1886,14 @@
   window.addEventListener('resize', positionResultFabColumns);
 
   $('result-back-btn').addEventListener('click', function () {
+    // Back from the guest's own just-taken photo leads on to the admin
+    // settings, behind the password (guests keep going with "צילום נוסף").
+    // A photo reached from a gallery, or reopened via the camera's own
+    // "my last photo" thumbnail, just returns where it came from.
+    if (resultReturnScreen === 'screen-camera' && !resultViaLastPhotoThumb) {
+      openAdminModal();
+      return;
+    }
     showScreen(resultReturnScreen);
     if (resultReturnScreen === 'screen-camera') startCamera();
   });
@@ -1901,6 +1919,7 @@
   });
   $('camera-last-photo-btn').addEventListener('click', function () {
     if (!resultUrl) return;
+    resultViaLastPhotoThumb = true;
     stopCamera();
     showScreen('screen-result');
   });
@@ -1977,9 +1996,13 @@
       img.src = URL.createObjectURL(blob);
     });
   }
+  // Greys only the photo area(s) of a finished card, in place, so the white
+  // card, logo and text are never touched (nor re-drawn - no chance of them
+  // shifting) and only one big canvas is ever held in memory.
   function toGrayscaleWithinRects(blob, rects) {
-    return new Promise(function (resolve) {
+    return new Promise(function (resolve, reject) {
       var img = new Image();
+      img.onerror = function () { reject(new Error('decode')); };
       img.onload = function () {
         var c = document.createElement('canvas');
         c.width = img.naturalWidth;
@@ -1988,38 +2011,35 @@
         ctx.drawImage(img, 0, 0);
         URL.revokeObjectURL(img.src);
         rects.forEach(function (r) {
-          var part = document.createElement('canvas');
-          part.width = r.w;
-          part.height = r.h;
-          part.getContext('2d').drawImage(c, r.x, r.y, r.w, r.h, 0, 0, r.w, r.h);
-          var gray = toGrayscaleCanvas(part);
-          ctx.save();
-          roundRectPath(ctx, r.x, r.y, r.w, r.h, r.r);
-          ctx.clip();
-          ctx.drawImage(gray, r.x, r.y);
-          ctx.restore();
+          var data = ctx.getImageData(r.x, r.y, r.w, r.h);
+          var d = data.data;
+          for (var row = 0; row < r.h; row++) {
+            var dy = Math.min(row, r.h - 1 - row);
+            var inset = dy < r.r ? Math.ceil(r.r - Math.sqrt(r.r * r.r - (r.r - dy) * (r.r - dy))) : 0;
+            for (var col = inset; col < r.w - inset; col++) {
+              var k = (row * r.w + col) * 4;
+              var gray = d[k] * 0.299 + d[k + 1] * 0.587 + d[k + 2] * 0.114;
+              d[k] = d[k + 1] = d[k + 2] = gray;
+            }
+          }
+          ctx.putImageData(data, r.x, r.y);
         });
-        c.toBlob(resolve, 'image/jpeg', 0.95);
+        c.toBlob(function (out) { out ? resolve(out) : reject(new Error('encode')); }, 'image/jpeg', 0.95);
       };
       img.src = URL.createObjectURL(blob);
     });
   }
   function grayscaleComposedPhoto() {
-    if (!currentPhotoIsLive) {
-      return currentPhotoRects && currentPhotoRects.length
-        ? toGrayscaleWithinRects(currentColorBlob, currentPhotoRects)
-        : toGrayscaleBlob(currentColorBlob);
-    }
-    var canvas = captureMode === 'strip'
-      ? composeStrip(lastStripFrames.map(function (f) { return toGrayscaleCanvas(f); }))
-      : composeWide(toGrayscaleCanvas(lastWideFrame));
-    return canvasToBlob(canvas);
+    // Every photo taken since the photo areas started being saved has them;
+    // only much older photos fall back to greying the whole image.
+    return currentPhotoRects && currentPhotoRects.length
+      ? toGrayscaleWithinRects(currentColorBlob, currentPhotoRects)
+      : toGrayscaleBlob(currentColorBlob);
   }
   $('btn-bw').addEventListener('click', function () {
     if (!currentColorBlob) return;
     var btn = this;
     btn.disabled = true;
-    toast('מעבד...');
     var goingToBw = !isBw;
     var photoNext, gifNext;
     try {
@@ -2035,7 +2055,6 @@
         : Promise.resolve(currentColorGifBlob);
     } catch (e) {
       btn.disabled = false;
-      toast('לא הצלחתי להפוך לשחור-לבן');
       return;
     }
     Promise.all([photoNext, gifNext]).then(function (results) {
@@ -2055,7 +2074,6 @@
       btn.disabled = false;
     }).catch(function () {
       btn.disabled = false;
-      toast('לא הצלחתי להפוך לשחור-לבן');
     });
   });
 
@@ -2315,7 +2333,6 @@
     var isGuestGallery = galleryReturnScreen === 'screen-result';
     $('gallery-admin-toolbar').style.display = isGuestGallery ? 'none' : '';
     $('export-all-group').style.display = isGuestGallery ? 'none' : '';
-    $('gallery-admin-exit-group').style.display = isGuestGallery ? '' : 'none';
     showScreen('screen-gallery');
     renderGalleryGrid();
   }
@@ -2404,11 +2421,6 @@
       reopenSettingsAfterScreen = false;
       openSettingsPanel();
     }
-  });
-  // Password-gated escape from the guest-facing gallery straight to the
-  // home screen - see the markup comment above gallery-admin-exit-group.
-  $('gallery-admin-exit-btn').addEventListener('click', function () {
-    openAdminModal(function () { showScreen('screen-welcome'); });
   });
   $('gallery-select-btn').addEventListener('click', function () {
     gallerySelectMode = !gallerySelectMode;
