@@ -166,7 +166,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260918f';
+  var APP_VERSION = '20260918h';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -398,7 +398,17 @@
   }
   setBrbActive(localStorage.getItem(BRB_KEY) === '1');
   $('brb-toggle-btn').addEventListener('click', function () {
-    setBrbActive(localStorage.getItem(BRB_KEY) !== '1');
+    var turningOn = localStorage.getItem(BRB_KEY) !== '1';
+    setBrbActive(turningOn);
+    // Turning BRB ON is meant to hide the app from view right away - if
+    // the settings panel stayed open on top, staff would still have to
+    // separately close it before the "be right back" screen actually
+    // shows, which defeats stepping away quickly. Closing it here makes
+    // pressing the toggle itself the one action that shows the overlay.
+    if (turningOn) {
+      $('settings-panel').classList.remove('active');
+      flushActiveEventSync();
+    }
   });
   // The overlay's own gear (same corner as the welcome screen's) is the
   // only way back once BRB is on - without it, turning BRB on would
@@ -1771,11 +1781,14 @@
     // measured edge keeps them inside the photo and clear of the fab
     // column in both modes, since the fab column is now never closer to
     // the screen edge than the photo's own edge.
+    // prev sits on the photo's RIGHT edge and next on its LEFT edge (see
+    // the CSS comment on .result-nav-prev/-next) - matching that swap here
+    // too, so the measured inset lands on the correct side in both modes.
     var navPrev = $('result-prev-btn');
     var navNext = $('result-next-btn');
     var navInset = 16;
-    if (navPrev) navPrev.style.left = Math.round((imgRect.left - wrapRect.left) + navInset) + 'px';
-    if (navNext) navNext.style.right = Math.round((wrapRect.right - imgRect.right) + navInset) + 'px';
+    if (navPrev) navPrev.style.right = Math.round((wrapRect.right - imgRect.right) + navInset) + 'px';
+    if (navNext) navNext.style.left = Math.round((imgRect.left - wrapRect.left) + navInset) + 'px';
   }
   $('result-canvas-view').addEventListener('load', positionResultFabColumns);
   window.addEventListener('resize', positionResultFabColumns);
@@ -3170,12 +3183,28 @@
   $('export-all-btn').addEventListener('click', function () { exportEventZip(getActiveEventName()); });
 
   // ---------- Start ----------
+  // Keeps the iPad's screen from auto-locking while this app is open -
+  // it's a staffed kiosk running non-stop through an event, and the
+  // screen dimming/locking mid-use would force staff to unlock it (or
+  // worse, interrupt a guest mid-photo). The lock is silently released by
+  // the browser whenever the screen actually locks or the app gets
+  // backgrounded, so it has to be re-requested every time the app comes
+  // back to the front, not just once at load - handled in the same
+  // visibilitychange listener below that already restarts the camera.
+  var wakeLock = null;
+  function requestWakeLock() {
+    if (!('wakeLock' in navigator)) return;
+    navigator.wakeLock.request('screen').then(function (lock) { wakeLock = lock; }).catch(function () {});
+  }
+  requestWakeLock();
+
   // Camera only starts when the guest actually enters the camera screen
   // (welcome-start-btn, or returning to it) - never automatically, so the
   // welcome screen is always the first thing shown after unlocking.
   window.addEventListener('visibilitychange', function () {
-    if (!document.hidden && $('screen-camera').classList.contains('active') && !stream) {
-      startCamera();
+    if (!document.hidden) {
+      requestWakeLock();
+      if ($('screen-camera').classList.contains('active') && !stream) startCamera();
     }
   });
 })();

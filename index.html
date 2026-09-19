@@ -22,7 +22,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="assets/css/style.css?v=20260918f">
+<link rel="stylesheet" href="assets/css/style.css?v=20260918h">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Dancing+Script:wght@600&family=Playfair+Display:ital@1&family=Amatic+SC:wght@700&family=Caveat:wght@600&family=Cormorant+Garamond:ital@1&family=Suez+One&family=Frank+Ruhl+Libre:ital,wght@0,500;1,500&family=Bellefair&family=Miriam+Libre:wght@700&family=Secular+One&family=Heebo:wght@700&family=David+Libre:wght@700&family=Alex+Brush&family=Allura&family=Parisienne&family=Tangerine:wght@700&family=Pinyon+Script&family=Mrs+Saint+Delafield&family=Sacramento&family=Yellowtail&display=swap">
 <style>
   html, body {
@@ -196,9 +196,10 @@
      background, so it needs to be easy to spot at a glance, not blend in. */
   #brb-settings-btn {
     opacity: 1;
-    width: 72px;
-    height: 72px;
-    font-size: 32px;
+    width: 120px;
+    height: 120px;
+    font-size: 56px;
+    border-width: 2px;
     border-color: var(--color-gold-soft);
   }
   /* No solid card behind the text - on some background photos it showed
@@ -700,8 +701,14 @@
     cursor: pointer;
   }
   .result-nav-btn[disabled] { opacity: .3; }
-  .result-nav-prev { left: calc(12px + env(safe-area-inset-left) + 44px + 60px); }
-  .result-nav-next { right: calc(12px + env(safe-area-inset-right) + 44px + 60px); }
+  /* This is an RTL app - "previous" (toward the newest photo) reads as
+     going back toward the start of the gallery grid, which in RTL sits on
+     the RIGHT; "next" (toward older photos) continues further into the
+     grid, which reads LEFT. Positioned opposite their glyph's own visual
+     side so each arrow points inward, toward the photo it's about to
+     reveal, matching common carousel convention. */
+  .result-nav-prev { right: calc(12px + env(safe-area-inset-right) + 44px + 60px); }
+  .result-nav-next { left: calc(12px + env(safe-area-inset-left) + 44px + 60px); }
   .fab-item {
     display: flex;
     flex-direction: column;
@@ -1541,6 +1548,6 @@
 <script src="assets/js/jszip.min.js"></script>
 <script src="assets/js/qrcode-generator.js"></script>
 <script src="assets/js/gifenc.js"></script>
-<script src="assets/js/app.js?v=20260918f"></script>
+<script src="assets/js/app.js?v=20260918h"></script>
 </body>
 </html>
