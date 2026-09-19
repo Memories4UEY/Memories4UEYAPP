@@ -166,7 +166,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260920f';
+  var APP_VERSION = '20260920h';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -477,6 +477,22 @@
     if (turningOn) {
       $('settings-panel').classList.remove('active');
       flushActiveEventSync();
+    }
+  });
+  // Full screen on/off (staff, from settings) - asks the browser to hide the
+  // status bar and browser bars where the device allows it; in some modes
+  // (e.g. an iPad app opened from the home screen) it may not be available.
+  $('fullscreen-btn').addEventListener('click', function () {
+    var el = document.documentElement;
+    var isFull = document.fullscreenElement || document.webkitFullscreenElement;
+    var enter = el.requestFullscreen || el.webkitRequestFullscreen;
+    var leave = document.exitFullscreen || document.webkitExitFullscreen;
+    try {
+      var p = isFull ? (leave && leave.call(document)) : (enter && enter.call(el));
+      if (!isFull && !enter) { toast('מסך מלא לא נתמך במכשיר או במצב הזה'); return; }
+      if (p && p.catch) p.catch(function () { toast('המכשיר לא אישר מסך מלא'); });
+    } catch (e) {
+      toast('מסך מלא לא נתמך במכשיר או במצב הזה');
     }
   });
   // The overlay's own gear (same corner as the welcome screen's) is the
@@ -2612,6 +2628,11 @@
     $('gallery-share-selected-btn').innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px" aria-hidden="true"><path d="M4 11v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8"/><path d="M12 15V3"/><path d="M7 8l5-5 5 5"/></svg> שתף (' + selectedCount + ')';
     $('gallery-delete-selected-btn').textContent = '🗑️ מחק (' + selectedCount + ')';
     $('gallery-select-all-btn').textContent = galleryRows.length && selectedCount === galleryRows.length ? 'בטל הכל' : 'בחר הכל';
+    // A clear running count in the title while selecting (the buttons carry it
+    // too, but it's easy to miss there); back to the plain total when done.
+    if (galleryReturnScreen !== 'screen-result') {
+      $('gallery-photo-count').textContent = gallerySelectMode ? ('נבחרו ' + selectedCount + ' מתוך ' + galleryRows.length) : (galleryRows.length + ' תמונות');
+    }
   }
   function setItemSelected(item, on) {
     var row = item._row;
