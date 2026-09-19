@@ -166,7 +166,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260918l';
+  var APP_VERSION = '20260918t';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -208,11 +208,11 @@
   // (see ACTIVE_EVENT_KEY below), so each event's gallery only ever shows
   // its own photos - loading a different saved event switches the whole
   // gallery to that event's own set, nothing mixes together.
-  function dbAdd(blob, gifBlob) {
+  function dbAdd(blob, gifBlob, photoRects) {
     return dbPromise.then(function (db) {
       return new Promise(function (resolve, reject) {
         var tx = db.transaction(STORE, 'readwrite');
-        var req = tx.objectStore(STORE).add({ blob: blob, gifBlob: gifBlob || null, createdAt: Date.now(), eventName: getActiveEventName() });
+        var req = tx.objectStore(STORE).add({ blob: blob, gifBlob: gifBlob || null, photoRects: photoRects || null, createdAt: Date.now(), eventName: getActiveEventName() });
         req.onsuccess = function () { resolve(req.result); };
         req.onerror = function () { reject(req.error); };
       });
@@ -348,6 +348,7 @@
   });
   function openSettingsPanel() {
     $('settings-panel').classList.add('active');
+    renderCamDiag();
     renderSavedEventsList();
     setActiveEventName(getActiveEventName());
   }
@@ -499,6 +500,9 @@
     setBgMode(setup.bgMode || 'none');
     if (setup.stripDesign) saveDesign(STRIP_DESIGN_KEY, setup.stripDesign);
     if (setup.wideDesign) saveDesign(WIDE_DESIGN_KEY, setup.wideDesign);
+    // start decoding this event's logos now, so the first photo has them ready
+    if (setup.stripDesign) preloadDesignImages(setup.stripDesign);
+    if (setup.wideDesign) preloadDesignImages(setup.wideDesign);
     setActiveEventName(name);
   }
   function findEventIndexByName(list, name) {
@@ -769,6 +773,26 @@
   var stream = null;
   var countingDown = false;
 
+  // Temporary staff-only readout (see #cam-diag-line in settings): what
+  // resolution the camera ACTUALLY delivers in this browser, versus what
+  // the device says it could do at most, and the size of the last frame
+  // and finished photo - so quality can be judged from real numbers
+  // instead of guessing. Kept in localStorage so it survives reloads.
+  var CAM_DIAG_KEY = 'm4u_cam_diag';
+  var camDiag = {};
+  try { camDiag = JSON.parse(localStorage.getItem(CAM_DIAG_KEY)) || {}; } catch (e) {}
+  function recordCamDiag(patch) {
+    Object.keys(patch).forEach(function (k) { if (patch[k] != null) camDiag[k] = patch[k]; });
+    try { localStorage.setItem(CAM_DIAG_KEY, JSON.stringify(camDiag)); } catch (e) {}
+  }
+  function renderCamDiag() {
+    function dim(w, h) { return w && h ? (w + '×' + h) : 'עדיין לא נמדד'; }
+    $('cam-diag-line').textContent = 'בדיקה זמנית, רזולוציית מצלמה. תצוגה חיה ' + dim(camDiag.previewW, camDiag.previewH) +
+      ' | מקסימום המכשיר ' + dim(camDiag.maxW, camDiag.maxH) +
+      ' | פריים אחרון שצולם ' + dim(camDiag.frameW, camDiag.frameH) +
+      ' | תמונה סופית ' + dim(camDiag.photoW, camDiag.photoH);
+  }
+
   function startCamera() {
     $('cam-error').style.display = 'none';
     if (stream) {
@@ -799,6 +823,12 @@
       stream = s;
       video.srcObject = s;
       video.play().catch(function () {});
+      var vTrack = s.getVideoTracks()[0];
+      if (vTrack) {
+        var vs = vTrack.getSettings ? vTrack.getSettings() : {};
+        var vc = vTrack.getCapabilities ? vTrack.getCapabilities() : {};
+        recordCamDiag({ previewW: vs.width, previewH: vs.height, maxW: vc.width && vc.width.max, maxH: vc.height && vc.height.max });
+      }
       s.getVideoTracks().forEach(function (track) {
         // If the OS ever revokes/ends the camera track (backgrounding,
         // another app taking the camera, etc.) the stream is dead even
@@ -827,6 +857,7 @@
   function rawFrame() {
     var vw = video.videoWidth || 1080;
     var vh = video.videoHeight || 1440;
+    recordCamDiag({ frameW: vw, frameH: vh });
     var canvas = document.createElement('canvas');
     canvas.width = vw;
     canvas.height = vh;
@@ -1178,19 +1209,37 @@
   // preview re-renders itself once the load finishes.
   var IMAGE_LAYER_CACHE = {};
   function preloadLayerImage(src) {
-    if (IMAGE_LAYER_CACHE[src]) return;
+    if (IMAGE_LAYER_CACHE[src]) return IMAGE_LAYER_CACHE[src];
     var entry = { img: new Image(), loaded: false };
     IMAGE_LAYER_CACHE[src] = entry;
-    entry.img.onload = function () {
-      entry.loaded = true;
-      if ($('screen-design').classList.contains('active')) renderDesignPreview();
-    };
+    entry.promise = new Promise(function (resolve) {
+      entry.img.onload = function () {
+        entry.loaded = true;
+        if ($('screen-design').classList.contains('active')) renderDesignPreview();
+        resolve();
+      };
+      entry.img.onerror = resolve;
+    });
     entry.img.src = src;
+    return entry;
   }
   function preloadDesignImages(design) {
     design.layers.forEach(function (layer) {
       if (layer.type === 'image' && layer.src) preloadLayerImage(layer.src);
     });
+  }
+  // Resolves once every logo/image layer in the design is decoded (or has
+  // failed, or 5s pass) - without this, the FIRST photo after loading an
+  // event that carries an uploaded logo was composed before that logo had
+  // finished decoding, so the logo was silently missing from it (and that
+  // photo is what got saved). Capture waits on this before composing.
+  function whenDesignImagesReady(design) {
+    var waits = [];
+    design.layers.forEach(function (layer) {
+      if (layer.type === 'image' && layer.src) waits.push(preloadLayerImage(layer.src).promise);
+    });
+    if (!waits.length) return Promise.resolve();
+    return Promise.race([Promise.all(waits), new Promise(function (r) { setTimeout(r, 5000); })]);
   }
 
   function renderLayers(ctx, design, W, H, isWide, hits, scale) {
@@ -1330,6 +1379,7 @@
     }
 
     renderLayers(ctx, design, W, H, true, hits);
+    canvas.m4uPhotoRects = [{ x: marginSide, y: marginTop, w: vw, h: vh, r: design.cornerRadius }];
     return canvas;
   }
 
@@ -1365,8 +1415,10 @@
     var cellW = W - cellX * 2;
     var cellH = Math.floor((H - topMargin - footerH - gap * (frames.length - 1)) / frames.length);
 
+    var photoRects = [];
     frames.forEach(function (frame, i) {
       var cy = topMargin + i * (cellH + gap);
+      photoRects.push({ x: Math.round(cellX), y: Math.round(cy), w: Math.round(cellW), h: Math.round(cellH), r: cornerRadius });
       ctx.save();
       roundRectPath(ctx, cellX, cy, cellW, cellH, cornerRadius);
       ctx.clip();
@@ -1375,6 +1427,7 @@
     });
 
     renderLayers(ctx, design, W, H, false, hits, STRIP_SCALE);
+    canvas.m4uPhotoRects = photoRects;
     return canvas;
   }
 
@@ -1470,9 +1523,11 @@
 
   function finishCapture(canvas) {
     return canvasToBlob(canvas).then(function (blob) {
+      recordCamDiag({ photoW: canvas.width, photoH: canvas.height });
       currentBlob = blob;
       currentPhotoId = null;
-      dbAdd(blob, currentGifBlob).then(function (id) { currentPhotoId = id; });
+      currentPhotoRects = canvas.m4uPhotoRects || null;
+      dbAdd(blob, currentGifBlob, currentPhotoRects).then(function (id) { currentPhotoId = id; });
       openResult(blob, true, currentGifBlob);
     });
   }
@@ -1624,7 +1679,7 @@
         return applyBackgroundReplacement(frame);
       }).then(function (frame) {
         lastWideFrame = frame;
-        return finishCapture(composeWide(frame));
+        return whenDesignImagesReady(getWideDesign()).then(function () { return finishCapture(composeWide(frame)); });
       });
     } else {
       var frames = [];
@@ -1657,7 +1712,7 @@
           $('gif-fab-item').style.display = '';
         });
       }).then(function () {
-        return finishCapture(composeStrip(frames));
+        return whenDesignImagesReady(getStripDesign()).then(function () { return finishCapture(composeStrip(frames)); });
       });
     }
 
@@ -1687,6 +1742,11 @@
   // for a photo reopened from the gallery (its raw frames are long gone,
   // and lastStripFrames/lastWideFrame would belong to a different photo).
   var currentPhotoIsLive = false;
+  // Where the actual photo(s) sit inside the finished card (pixel rects), so
+  // B&W on a photo reopened from the gallery can grey ONLY those areas and
+  // leave the card, logo and text in color. Saved with each photo at capture;
+  // photos from before this was saved have none and fall back to whole-image.
+  var currentPhotoRects = null;
   function openResult(blob, fromCapture, gifBlob) {
     resultReturnScreen = fromCapture ? 'screen-camera' : 'screen-gallery';
     currentPhotoIsLive = !!fromCapture;
@@ -1725,9 +1785,9 @@
       $('camera-last-photo-thumb').src = resultUrl;
       $('camera-last-photo-group').style.display = '';
     }
-    // Prev/next through the gallery - staff only (never for a guest's own
-    // just-taken photo, or a guest browsing the guest-facing gallery).
-    var showNav = !fromCapture && galleryReturnScreen !== 'screen-result' && galleryRowIndex !== -1;
+    // Prev/next through the gallery (staff and guests browsing the album) -
+    // never for a guest's own just-taken photo, which isn't part of a grid.
+    var showNav = !fromCapture && galleryRowIndex !== -1;
     $('result-prev-btn').style.display = showNav ? '' : 'none';
     $('result-next-btn').style.display = showNav ? '' : 'none';
     if (showNav) {
@@ -1799,6 +1859,7 @@
     galleryRowIndex--;
     var row = galleryRows[galleryRowIndex];
     currentPhotoId = row.id;
+    currentPhotoRects = row.photoRects || null;
     openResult(row.blob, false, row.gifBlob);
   });
   $('result-next-btn').addEventListener('click', function () {
@@ -1806,6 +1867,7 @@
     galleryRowIndex++;
     var row = galleryRows[galleryRowIndex];
     currentPhotoId = row.id;
+    currentPhotoRects = row.photoRects || null;
     openResult(row.blob, false, row.gifBlob);
   });
   $('btn-retake').addEventListener('click', function () {
@@ -1890,8 +1952,39 @@
       img.src = URL.createObjectURL(blob);
     });
   }
+  function toGrayscaleWithinRects(blob, rects) {
+    return new Promise(function (resolve) {
+      var img = new Image();
+      img.onload = function () {
+        var c = document.createElement('canvas');
+        c.width = img.naturalWidth;
+        c.height = img.naturalHeight;
+        var ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        URL.revokeObjectURL(img.src);
+        rects.forEach(function (r) {
+          var part = document.createElement('canvas');
+          part.width = r.w;
+          part.height = r.h;
+          part.getContext('2d').drawImage(c, r.x, r.y, r.w, r.h, 0, 0, r.w, r.h);
+          var gray = toGrayscaleCanvas(part);
+          ctx.save();
+          roundRectPath(ctx, r.x, r.y, r.w, r.h, r.r);
+          ctx.clip();
+          ctx.drawImage(gray, r.x, r.y);
+          ctx.restore();
+        });
+        c.toBlob(resolve, 'image/jpeg', 0.95);
+      };
+      img.src = URL.createObjectURL(blob);
+    });
+  }
   function grayscaleComposedPhoto() {
-    if (!currentPhotoIsLive) return toGrayscaleBlob(currentColorBlob);
+    if (!currentPhotoIsLive) {
+      return currentPhotoRects && currentPhotoRects.length
+        ? toGrayscaleWithinRects(currentColorBlob, currentPhotoRects)
+        : toGrayscaleBlob(currentColorBlob);
+    }
     var canvas = captureMode === 'strip'
       ? composeStrip(lastStripFrames.map(function (f) { return toGrayscaleCanvas(f); }))
       : composeWide(toGrayscaleCanvas(lastWideFrame));
@@ -2182,7 +2275,7 @@
     // stay admin-only, reached only via ⚙️ settings, never for a guest.
     var isGuestGallery = galleryReturnScreen === 'screen-result';
     $('gallery-admin-toolbar').style.display = isGuestGallery ? 'none' : '';
-    $('export-all-btn').style.display = isGuestGallery ? 'none' : '';
+    $('export-all-group').style.display = isGuestGallery ? 'none' : '';
     $('gallery-admin-exit-group').style.display = isGuestGallery ? '' : 'none';
     showScreen('screen-gallery');
     renderGalleryGrid();
@@ -2194,8 +2287,7 @@
   // second, stale, duplicate set of items on top of it.
   var galleryRenderGen = 0;
   // Kept so the result screen's ‹/› arrows can step to the next/previous
-  // photo without bouncing back to the grid each time - admin-only, a
-  // guest never has these arrows (see galleryReturnScreen below).
+  // photo without bouncing back to the grid each time.
   var galleryRows = [];
   var galleryRowIndex = -1;
   function renderGalleryGrid() {
@@ -2243,7 +2335,8 @@
           } else {
             currentPhotoId = row.id;
             galleryRowIndex = galleryRows.indexOf(row);
-            openResult(row.blob, false, row.gifBlob);
+            currentPhotoRects = row.photoRects || null;
+    openResult(row.blob, false, row.gifBlob);
           }
         });
         grid.appendChild(item);
@@ -3243,6 +3336,9 @@
   // backgrounded, so it has to be re-requested every time the app comes
   // back to the front, not just once at load - handled in the same
   // visibilitychange listener below that already restarts the camera.
+  preloadDesignImages(getStripDesign());
+  preloadDesignImages(getWideDesign());
+
   var wakeLock = null;
   function requestWakeLock() {
     if (!('wakeLock' in navigator)) return;
