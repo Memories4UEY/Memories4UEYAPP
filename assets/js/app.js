@@ -166,7 +166,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260918h';
+  var APP_VERSION = '20260918l';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -1741,54 +1741,51 @@
     showScreen('screen-result');
   }
 
-  // The fab icon columns sit a fixed distance in from the SCREEN edge
-  // (see .result-fab-col/-right in the CSS) - tuned so the physical booth
-  // enclosure around the iPad doesn't block them. That fixed distance
-  // only leaves clear space next to a strip photo, which renders narrow
-  // with wide margins either side; a wide photo (composeWide) renders
-  // much closer to the screen's full width, so the same fixed offset
-  // lands the icons on top of it instead of beside it. Rather than a
-  // second fixed offset that would just be wrong for some other viewport
-  // size, this measures the photo's ACTUAL on-screen edges after every
-  // render and only pulls the icons in from the enclosure-clearance
-  // default when the photo itself needs more room than that leaves -
-  // strip photos (which never need it) are untouched.
+  // Lays out, from the photo's own measured edges outward: photo, then
+  // (staff gallery only) the prev/next arrow just outside it, then the
+  // fab icon column outside that. The fab columns' CSS default sits a
+  // fixed distance in from the SCREEN edge (tuned so the physical booth
+  // enclosure doesn't block them); a strip photo is narrow enough that
+  // this leaves room for everything, but a wide photo fills much more of
+  // the width, so the columns move outward only as far as needed, never
+  // closer to the screen edge than the base margin. When there still
+  // isn't room for the arrows outside the photo, they're allowed to sit
+  // slightly ON the photo (never on the icons) - the photo is never
+  // shrunk. Re-measured on every image load and resize.
   function positionResultFabColumns() {
     if (!$('screen-result').classList.contains('active')) return;
     var wrap = document.querySelector('.result-photo-wrap');
     var img = $('result-canvas-view');
     var fabL = document.querySelector('.result-fab-col');
     var fabR = document.querySelector('.result-fab-col-right');
+    var navPrev = $('result-prev-btn');
+    var navNext = $('result-next-btn');
     if (!wrap || !img || !fabL || !fabR || !img.naturalWidth) return;
     fabL.style.left = '';
     fabR.style.right = '';
+    var gap = 10, navW = 44, hardFloor = 12;
+    var showNav = navPrev.style.display !== 'none';
+    var extra = showNav ? gap + navW + gap : gap; // photo edge -> fab column, ideally
     var wrapRect = wrap.getBoundingClientRect();
     var imgRect = img.getBoundingClientRect();
-    var gap = 12; // breathing room between the icon column and the photo's own edge
-    var hardFloor = 12; // never closer to the physical screen edge than the base margin
+    var fabLW = fabL.getBoundingClientRect().width, fabRW = fabR.getBoundingClientRect().width;
     var cssLeft = fabL.getBoundingClientRect().left - wrapRect.left;
-    var maxAllowedLeft = (imgRect.left - wrapRect.left) - fabL.getBoundingClientRect().width - gap;
-    if (maxAllowedLeft < cssLeft) fabL.style.left = Math.max(hardFloor, maxAllowedLeft) + 'px';
     var cssRight = wrapRect.right - fabR.getBoundingClientRect().right;
-    var maxAllowedRight = (wrapRect.right - imgRect.right) - fabR.getBoundingClientRect().width - gap;
-    if (maxAllowedRight < cssRight) fabR.style.right = Math.max(hardFloor, maxAllowedRight) + 'px';
-    // Prev/next are meant to sit overlaid ON the photo, just inside its own
-    // edge (see the comment on .result-nav-btn in the CSS) - they used a
-    // fixed screen-edge offset tuned to clear the OLD fixed fab column
-    // position, so once the fab columns above started moving inward for a
-    // wide photo, that fixed offset put these arrows right where the fab
-    // icons now sit instead of clearing them. Anchoring to the photo's own
-    // measured edge keeps them inside the photo and clear of the fab
-    // column in both modes, since the fab column is now never closer to
-    // the screen edge than the photo's own edge.
-    // prev sits on the photo's RIGHT edge and next on its LEFT edge (see
-    // the CSS comment on .result-nav-prev/-next) - matching that swap here
-    // too, so the measured inset lands on the correct side in both modes.
-    var navPrev = $('result-prev-btn');
-    var navNext = $('result-next-btn');
-    var navInset = 16;
-    if (navPrev) navPrev.style.right = Math.round((wrapRect.right - imgRect.right) + navInset) + 'px';
-    if (navNext) navNext.style.left = Math.round((imgRect.left - wrapRect.left) + navInset) + 'px';
+    var mL = imgRect.left - wrapRect.left;
+    var mR = wrapRect.right - imgRect.right;
+    var fabLeft = Math.min(cssLeft, Math.max(hardFloor, mL - extra - fabLW));
+    var fabRight = Math.min(cssRight, Math.max(hardFloor, mR - extra - fabRW));
+    fabL.style.left = fabLeft + 'px';
+    fabR.style.right = fabRight + 'px';
+    // ideal spot is just outside the photo; never closer to the screen
+    // edge than the fab column's inner side plus a gap (that would sit on
+    // the icons), so if the photo is too wide the arrow ends up on the photo
+    var nextLeft = Math.max(mL - gap - navW, fabLeft + fabLW + gap);
+    var prevRight = Math.max(mR - gap - navW, fabRight + fabRW + gap);
+    // prev sits on the photo's RIGHT side and next on its LEFT (RTL flow,
+    // see the CSS comment on .result-nav-prev/-next)
+    navPrev.style.right = Math.round(prevRight) + 'px';
+    navNext.style.left = Math.round(nextLeft) + 'px';
   }
   $('result-canvas-view').addEventListener('load', positionResultFabColumns);
   window.addEventListener('resize', positionResultFabColumns);
@@ -3140,47 +3137,102 @@
     });
   });
 
-  // ---------- Export a specific event's photos as one zip (to send to
+  // ---------- Export a specific event's photos as one PDF (to send to
   // the event owner) - eventName defaults to whatever's active. ----------
-  // A zipped export sent as a Mail attachment was reported not opening
-  // properly on the receiving end - rather than guess at exactly which
-  // step of zip-then-email misbehaves, this shares the photos as plain
-  // .jpg files directly (no zip involved at all), which every email
-  // client/Photos app opens natively without a second step. Falls back to
-  // the zip only when the browser can't share multiple files at once, so
-  // there's still a way to get a single downloadable file.
-  // Downloads straight to the device instead of going through
-  // navigator.share - sharing many files (or even one large zip) hands
-  // the choice of destination app to iOS itself, and on this iPad that
-  // keeps landing on Google Drive, where the photos are unreachable
-  // without being logged into an account. A direct download has no app
-  // picker at all: the zip lands in the Files app's own "הורדות"
-  // (Downloads) folder every time, fully under staff's control, and iOS
-  // Files can extract a zip natively (tap it) with no other app needed.
-  function exportEventZip(eventName, onDone) {
+  // One page per photo, each page exactly the photo's own shape, with the
+  // photo's original JPEG bytes embedded untouched (no re-compression, no
+  // resizing) - so the PDF is exactly as sharp as the photos already are.
+  // It can't add detail a photo never had (see composeStrip's scale note).
+  // Written by hand rather than with a library: a PDF that just holds
+  // JPEGs is a few dozen lines, and the pieces are handed to Blob as-is so
+  // a large event never has to sit in memory as one giant array.
+  function imageSize(blob) {
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(blob);
+      var img = new Image();
+      img.onload = function () { URL.revokeObjectURL(url); resolve({ w: img.naturalWidth, h: img.naturalHeight }); };
+      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('bad image')); };
+      img.src = url;
+    });
+  }
+  function asJpegBlob(blob) {
+    return blob.slice(0, 2).arrayBuffer().then(function (buf) {
+      var b = new Uint8Array(buf);
+      if (b[0] === 0xFF && b[1] === 0xD8) return blob;
+      return imageSize(blob).then(function (size) {
+        return new Promise(function (resolve) {
+          var url = URL.createObjectURL(blob);
+          var img = new Image();
+          img.onload = function () {
+            var c = document.createElement('canvas');
+            c.width = size.w; c.height = size.h;
+            c.getContext('2d').drawImage(img, 0, 0);
+            URL.revokeObjectURL(url);
+            c.toBlob(resolve, 'image/jpeg', 0.95);
+          };
+          img.src = url;
+        });
+      });
+    });
+  }
+  function buildPhotosPdf(blobs) {
+    var enc = new TextEncoder();
+    var parts = [];
+    var offset = 0;
+    var offsets = [];
+    function push(part, len) { parts.push(part); offset += len; }
+    function text(s) { var b = enc.encode(s); push(b, b.length); }
+    function startObj(n) { offsets[n] = offset; text(n + ' 0 obj\n'); }
+    text('%PDF-1.4\n');
+    var pageCount = blobs.length;
+    // objects: 1 catalog, 2 pages, then per photo: page, image, content
+    startObj(1); text('<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
+    var kids = [];
+    for (var i = 0; i < pageCount; i++) kids.push((3 + i * 3) + ' 0 R');
+    startObj(2); text('<< /Type /Pages /Count ' + pageCount + ' /Kids [' + kids.join(' ') + '] >>\nendobj\n');
+    return Promise.all(blobs.map(function (b) { return imageSize(b); })).then(function (sizes) {
+      blobs.forEach(function (blob, i) {
+        var pageN = 3 + i * 3, imgN = pageN + 1, contentN = pageN + 2;
+        // 300 dpi: pixels -> points, so the page is the photo's real print size
+        var pw = (sizes[i].w * 72 / 300).toFixed(2), ph = (sizes[i].h * 72 / 300).toFixed(2);
+        startObj(pageN);
+        text('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' + pw + ' ' + ph + '] /Resources << /XObject << /Im0 ' + imgN + ' 0 R >> >> /Contents ' + contentN + ' 0 R >>\nendobj\n');
+        startObj(imgN);
+        text('<< /Type /XObject /Subtype /Image /Width ' + sizes[i].w + ' /Height ' + sizes[i].h + ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ' + blob.size + ' >>\nstream\n');
+        push(blob, blob.size);
+        text('\nendstream\nendobj\n');
+        var content = 'q ' + pw + ' 0 0 ' + ph + ' 0 0 cm /Im0 Do Q';
+        startObj(contentN);
+        text('<< /Length ' + content.length + ' >>\nstream\n' + content + '\nendstream\nendobj\n');
+      });
+      var total = 3 + pageCount * 3;
+      var xrefAt = offset;
+      var xref = 'xref\n0 ' + total + '\n0000000000 65535 f \n';
+      for (var n = 1; n < total; n++) xref += ('0000000000' + offsets[n]).slice(-10) + ' 00000 n \n';
+      text(xref + 'trailer\n<< /Size ' + total + ' /Root 1 0 R >>\nstartxref\n' + xrefAt + '\n%%EOF\n');
+      return new Blob(parts, { type: 'application/pdf' });
+    });
+  }
+  function exportEventPdf(eventName, onDone) {
     dbAllForEvent(eventName).then(function (rows) {
       if (!rows.length) {
         toast('אין תמונות לייצוא');
         return;
       }
-      toast('מכין קובץ...');
-      var zip = new JSZip();
-      rows.forEach(function (row, i) {
-        var num = String(rows.length - i).padStart(3, '0');
-        zip.file('memories4u-' + num + '.jpg', row.blob);
-      });
-      zip.generateAsync({ type: 'blob' }).then(function (zipBlob) {
-        var fileName = 'memories4u-event-photos.zip';
+      toast('מכין PDF...');
+      // oldest first, so page 1 is the first photo of the event
+      var ordered = rows.slice().reverse();
+      Promise.all(ordered.map(function (row) { return asJpegBlob(row.blob); })).then(buildPhotosPdf).then(function (pdf) {
         var a = document.createElement('a');
-        a.href = URL.createObjectURL(zipBlob);
-        a.download = fileName;
+        a.href = URL.createObjectURL(pdf);
+        a.download = 'memories4u-event-photos.pdf';
         a.click();
-        toast('הקובץ ירד לתיקיית "הורדות" באפליקציית הקבצים - הקשה עליו שם תחלץ את כל התמונות');
+        toast('ה-PDF מוכן - חפש את חץ ההורדות בסרגל העליון של ספארי כדי לפתוח אותו');
         if (onDone) onDone();
-      });
+      }).catch(function () { toast('הייצוא נכשל - נסו שוב'); });
     });
   }
-  $('export-all-btn').addEventListener('click', function () { exportEventZip(getActiveEventName()); });
+  $('export-all-btn').addEventListener('click', function () { exportEventPdf(getActiveEventName()); });
 
   // ---------- Start ----------
   // Keeps the iPad's screen from auto-locking while this app is open -

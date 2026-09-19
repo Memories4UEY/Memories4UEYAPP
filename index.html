@@ -22,7 +22,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="assets/css/style.css?v=20260918h">
+<link rel="stylesheet" href="assets/css/style.css?v=20260918l">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Dancing+Script:wght@600&family=Playfair+Display:ital@1&family=Amatic+SC:wght@700&family=Caveat:wght@600&family=Cormorant+Garamond:ital@1&family=Suez+One&family=Frank+Ruhl+Libre:ital,wght@0,500;1,500&family=Bellefair&family=Miriam+Libre:wght@700&family=Secular+One&family=Heebo:wght@700&family=David+Libre:wght@700&family=Alex+Brush&family=Allura&family=Parisienne&family=Tangerine:wght@700&family=Pinyon+Script&family=Mrs+Saint+Delafield&family=Sacramento&family=Yellowtail&display=swap">
 <style>
   html, body {
@@ -189,18 +189,6 @@
     justify-content: center;
     font-size: 24px;
     cursor: pointer;
-  }
-  /* Bigger and fully opaque (the shared rule above dims icon buttons to
-     .8 so they don't distract on the welcome screen) - this is the ONLY
-     way back once BRB is on, on a screen that's otherwise a plain black
-     background, so it needs to be easy to spot at a glance, not blend in. */
-  #brb-settings-btn {
-    opacity: 1;
-    width: 120px;
-    height: 120px;
-    font-size: 56px;
-    border-width: 2px;
-    border-color: var(--color-gold-soft);
   }
   /* No solid card behind the text - on some background photos it showed
      up as an ugly visible gray box. Legibility comes from the scrim
@@ -915,22 +903,22 @@
     align-items: center;
     justify-content: center;
     text-align: center;
-    gap: 14px;
+    gap: 28px;
     padding: 24px;
   }
   #brb-overlay.active { display: flex; }
-  #brb-overlay img { width: 96px; height: 96px; border-radius: 50%; }
+  #brb-overlay img { width: 260px; height: 260px; border-radius: 50%; }
   #brb-overlay h1 {
     font-family: var(--font-heading);
     color: var(--color-gold);
-    font-size: 26px;
+    font-size: 80px;
     margin: 0;
   }
   #brb-overlay p {
     color: var(--color-text-muted);
-    font-size: 15px;
+    font-size: 34px;
     margin: 0;
-    max-width: 320px;
+    max-width: 800px;
   }
 
   /* ---- Design editor ---- */
@@ -1545,9 +1533,8 @@
   <p>נעדרים לכמה רגעים - חוזרים תיכף!</p>
 </div>
 
-<script src="assets/js/jszip.min.js"></script>
 <script src="assets/js/qrcode-generator.js"></script>
 <script src="assets/js/gifenc.js"></script>
-<script src="assets/js/app.js?v=20260918h"></script>
+<script src="assets/js/app.js?v=20260918l"></script>
 </body>
 </html>
