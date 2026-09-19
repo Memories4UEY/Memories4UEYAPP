@@ -166,7 +166,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260918y';
+  var APP_VERSION = '20260918z';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -348,7 +348,6 @@
   });
   function openSettingsPanel() {
     $('settings-panel').classList.add('active');
-    renderCamDiag();
     renderSavedEventsList();
     setActiveEventName(getActiveEventName());
   }
@@ -773,26 +772,6 @@
   var stream = null;
   var countingDown = false;
 
-  // Temporary staff-only readout (see #cam-diag-line in settings): what
-  // resolution the camera ACTUALLY delivers in this browser, versus what
-  // the device says it could do at most, and the size of the last frame
-  // and finished photo - so quality can be judged from real numbers
-  // instead of guessing. Kept in localStorage so it survives reloads.
-  var CAM_DIAG_KEY = 'm4u_cam_diag';
-  var camDiag = {};
-  try { camDiag = JSON.parse(localStorage.getItem(CAM_DIAG_KEY)) || {}; } catch (e) {}
-  function recordCamDiag(patch) {
-    Object.keys(patch).forEach(function (k) { if (patch[k] != null) camDiag[k] = patch[k]; });
-    try { localStorage.setItem(CAM_DIAG_KEY, JSON.stringify(camDiag)); } catch (e) {}
-  }
-  function renderCamDiag() {
-    function dim(w, h) { return w && h ? (w + '×' + h) : 'עדיין לא נמדד'; }
-    $('cam-diag-line').textContent = 'בדיקה זמנית, רזולוציית מצלמה. תצוגה חיה ' + dim(camDiag.previewW, camDiag.previewH) +
-      ' | מקסימום המכשיר ' + dim(camDiag.maxW, camDiag.maxH) +
-      ' | פריים אחרון שצולם ' + dim(camDiag.frameW, camDiag.frameH) +
-      ' | תמונה סופית ' + dim(camDiag.photoW, camDiag.photoH);
-  }
-
   function startCamera() {
     $('cam-error').style.display = 'none';
     if (stream) {
@@ -823,12 +802,6 @@
       stream = s;
       video.srcObject = s;
       video.play().catch(function () {});
-      var vTrack = s.getVideoTracks()[0];
-      if (vTrack) {
-        var vs = vTrack.getSettings ? vTrack.getSettings() : {};
-        var vc = vTrack.getCapabilities ? vTrack.getCapabilities() : {};
-        recordCamDiag({ previewW: vs.width, previewH: vs.height, maxW: vc.width && vc.width.max, maxH: vc.height && vc.height.max });
-      }
       s.getVideoTracks().forEach(function (track) {
         // If the OS ever revokes/ends the camera track (backgrounding,
         // another app taking the camera, etc.) the stream is dead even
@@ -857,7 +830,6 @@
   function rawFrame() {
     var vw = video.videoWidth || 1080;
     var vh = video.videoHeight || 1440;
-    recordCamDiag({ frameW: vw, frameH: vh });
     var canvas = document.createElement('canvas');
     canvas.width = vw;
     canvas.height = vh;
@@ -1547,7 +1519,6 @@
 
   function finishCapture(canvas) {
     return canvasToBlob(canvas).then(function (blob) {
-      recordCamDiag({ photoW: canvas.width, photoH: canvas.height });
       currentBlob = blob;
       currentPhotoId = null;
       currentPhotoRects = canvas.m4uPhotoRects || null;
