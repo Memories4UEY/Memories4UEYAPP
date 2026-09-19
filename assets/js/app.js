@@ -166,7 +166,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260918z';
+  var APP_VERSION = '20260920b';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -196,6 +196,20 @@
   // ---------- IndexedDB gallery ----------
   var DB_NAME = 'm4u-photobooth';
   var STORE = 'photos';
+  // Thumbnails live in their OWN small database so the photos database is
+  // never touched or upgraded (an upgrade can be blocked by another open
+  // copy of the app, which would stop photos from saving).
+  var THUMB_DB_NAME = 'm4u-photobooth-thumbs';
+  var THUMB_STORE = 'thumbs';
+  var thumbDbPromise = new Promise(function (resolve) {
+    try {
+      var treq = indexedDB.open(THUMB_DB_NAME, 1);
+      treq.onupgradeneeded = function () { treq.result.createObjectStore(THUMB_STORE, { keyPath: 'id' }); };
+      treq.onsuccess = function () { resolve(treq.result); };
+      treq.onerror = function () { resolve(null); };
+      treq.onblocked = function () { resolve(null); };
+    } catch (e) { resolve(null); }
+  });
   var dbPromise = new Promise(function (resolve, reject) {
     var req = indexedDB.open(DB_NAME, 1);
     req.onupgradeneeded = function () {
@@ -243,9 +257,64 @@
     return dbPromise.then(function (db) {
       return new Promise(function (resolve, reject) {
         var tx = db.transaction(STORE, 'readwrite');
+        thumbDbPromise.then(function (tdb) {
+          if (tdb) { try { tdb.transaction(THUMB_STORE, 'readwrite').objectStore(THUMB_STORE).delete(id); } catch (e) {} }
+        });
         var req = tx.objectStore(STORE).delete(id);
         req.onsuccess = function () { resolve(); };
         req.onerror = function () { reject(req.error); };
+      });
+    });
+  }
+
+  // ---------- Gallery thumbnails ----------
+  // The gallery grid used to load every photo at FULL size (up to 16
+  // megapixels each) just to show a small tile - with over a hundred photos
+  // that overwhelms the iPad and the tiles come up blank. Each photo now has
+  // a small thumbnail (480px wide) kept in its own store, made at capture
+  // time, and built once in the background for older photos that lack one.
+  var THUMB_WIDTH = 480;
+  function thumbFromDrawable(src, w, h) {
+    var tw = Math.min(THUMB_WIDTH, w), th = Math.max(1, Math.round(h * tw / w));
+    var c = document.createElement('canvas');
+    c.width = tw;
+    c.height = th;
+    var ctx = c.getContext('2d');
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(src, 0, 0, tw, th);
+    return new Promise(function (resolve) { c.toBlob(resolve, 'image/jpeg', 0.85); });
+  }
+  function thumbFromBlob(blob) {
+    return new Promise(function (resolve, reject) {
+      var img = new Image();
+      img.onerror = function () { URL.revokeObjectURL(img.src); reject(new Error('decode')); };
+      img.onload = function () {
+        var w = img.naturalWidth, h = img.naturalHeight;
+        thumbFromDrawable(img, w, h).then(function (t) { URL.revokeObjectURL(img.src); resolve(t); });
+      };
+      img.src = URL.createObjectURL(blob);
+    });
+  }
+  function dbPutThumb(id, blob) {
+    if (!blob) return Promise.resolve();
+    return thumbDbPromise.then(function (db) {
+      if (!db) return;
+      return new Promise(function (resolve) {
+        var tx = db.transaction(THUMB_STORE, 'readwrite');
+        tx.objectStore(THUMB_STORE).put({ id: id, blob: blob });
+        tx.oncomplete = function () { resolve(); };
+        tx.onerror = function () { resolve(); };
+      });
+    });
+  }
+  function dbAllThumbs() {
+    return thumbDbPromise.then(function (db) {
+      return new Promise(function (resolve) {
+        var map = {};
+        if (!db) { resolve(map); return; }
+        var req = db.transaction(THUMB_STORE, 'readonly').objectStore(THUMB_STORE).getAll();
+        req.onsuccess = function () { req.result.forEach(function (t) { map[t.id] = t.blob; }); resolve(map); };
+        req.onerror = function () { resolve(map); };
       });
     });
   }
@@ -1435,43 +1504,58 @@
   var currentColorGifBlob = null; // original color GIF, kept so B&W can toggle the GIF too
   var bwGifBlobCache = null;
 
-  // Builds a small looping GIF from the same 3 shots used for the strip.
+  // Builds a looping GIF from the same 3 shots used for the strip.
   // `grayscale` mirrors whatever the still photo's B&W toggle is set to,
-  // so the GIF sent/shared always matches what's on screen.
-  function composeGif(frames, grayscale) {
-    return new Promise(function (resolve) {
-      var maxDim = 480;
-      var w = frames[0].width, h = frames[0].height;
-      var scale = Math.min(1, maxDim / Math.max(w, h));
-      var gw = Math.max(1, Math.round(w * scale));
-      var gh = Math.max(1, Math.round(h * scale));
-      var gif = gifenc.GIFEncoder();
-      frames.forEach(function (frame) {
-        var c = document.createElement('canvas');
-        c.width = gw;
-        c.height = gh;
-        var ctx = c.getContext('2d');
-        ctx.drawImage(frame, 0, 0, gw, gh);
-        var imageData = ctx.getImageData(0, 0, gw, gh);
-        var data = imageData.data;
-        if (grayscale) {
-          for (var i = 0; i < data.length; i += 4) {
-            var gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
-            data[i] = data[i + 1] = data[i + 2] = gray;
-          }
-        }
-        var palette = gifenc.quantize(data, 256);
-        var index = gifenc.applyPalette(data, palette);
-        gif.writeFrame(index, gw, gh, { palette: palette, delay: 700, repeat: 0 });
+  // so the GIF sent/shared always matches what's on screen. `full` keeps
+  // the camera's full frame size (only done on demand for a guest's own
+  // live photo, since it's slow and the file is big); otherwise a smaller
+  // 960px version is built, which is what gets saved with each photo.
+  // Frames are processed one per tick so the screen never freezes solid.
+  function composeGif(frames, grayscale, full) {
+    var maxDim = full ? Infinity : 960;
+    var w = frames[0].width, h = frames[0].height;
+    var scale = Math.min(1, maxDim / Math.max(w, h));
+    var gw = Math.max(1, Math.round(w * scale));
+    var gh = Math.max(1, Math.round(h * scale));
+    var gif = gifenc.GIFEncoder();
+    var chain = Promise.resolve();
+    frames.forEach(function (frame) {
+      chain = chain.then(function () {
+        return new Promise(function (resolve) {
+          setTimeout(function () {
+            var c = document.createElement('canvas');
+            c.width = gw;
+            c.height = gh;
+            var ctx = c.getContext('2d');
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(frame, 0, 0, gw, gh);
+            var data = ctx.getImageData(0, 0, gw, gh).data;
+            if (grayscale) {
+              for (var i = 0; i < data.length; i += 4) {
+                var gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+                data[i] = data[i + 1] = data[i + 2] = gray;
+              }
+            }
+            var palette = gifenc.quantize(data, 256);
+            var index = gifenc.applyPalette(data, palette);
+            gif.writeFrame(index, gw, gh, { palette: palette, delay: 700, repeat: 0 });
+            resolve();
+          }, 0);
+        });
       });
+    });
+    return chain.then(function () {
       gif.finish();
-      resolve(new Blob([gif.bytes()], { type: 'image/gif' }));
+      return new Blob([gif.bytes()], { type: 'image/gif' });
     });
   }
 
+  // Maximum JPEG quality everywhere a finished photo is encoded - file size
+  // is a non-issue next to the photo itself never being degraded.
+  var JPEG_QUALITY = 1;
   function canvasToBlob(canvas) {
     return new Promise(function (resolve) {
-      canvas.toBlob(function (blob) { resolve(blob); }, 'image/jpeg', 0.95);
+      canvas.toBlob(function (blob) { resolve(blob); }, 'image/jpeg', JPEG_QUALITY);
     });
   }
 
@@ -1523,7 +1607,12 @@
       currentPhotoId = null;
       currentPhotoRects = canvas.m4uPhotoRects || null;
       lastCapture = { blob: blob, gifBlob: currentGifBlob, rects: currentPhotoRects, id: null };
-      dbAdd(blob, currentGifBlob, currentPhotoRects).then(function (id) { currentPhotoId = id; lastCapture.id = id; });
+      var thumbPromise = thumbFromDrawable(canvas, canvas.width, canvas.height);
+      dbAdd(blob, currentGifBlob, currentPhotoRects).then(function (id) {
+        currentPhotoId = id;
+        lastCapture.id = id;
+        thumbPromise.then(function (tb) { dbPutThumb(id, tb); });
+      });
       openResult(blob, true, currentGifBlob);
     });
   }
@@ -1752,6 +1841,8 @@
     resultReturnScreen = fromCapture ? 'screen-camera' : 'screen-gallery';
     currentPhotoIsLive = !!fromCapture;
     resultViaLastPhotoThumb = false;
+    fullGifCache = null;
+    viewGifBlob = null;
     $('btn-bw').disabled = false;
     currentBlob = blob;
     currentColorBlob = blob;
@@ -1805,6 +1896,18 @@
     $('copies-count').textContent = printCopies;
     stopCamera();
     showScreen('screen-result');
+    // Guest's own fresh photo: build the black-and-white version quietly in
+    // the background a moment after it appears, so the B&W button answers
+    // instantly instead of making the guest wait for the conversion.
+    if (fromCapture) {
+      var warmBlob = blob;
+      setTimeout(function () {
+        if (currentColorBlob !== warmBlob || bwBlobCache) return;
+        grayscaleComposedPhoto().then(function (b) {
+          if (currentColorBlob === warmBlob) bwBlobCache = b;
+        }).catch(function () {});
+      }, 800);
+    }
   }
 
   // Lays out, from the photo's own measured edges outward: photo, then
@@ -1962,7 +2065,7 @@
       img.onload = function () {
         var gray = toGrayscaleCanvas(img, img.naturalWidth, img.naturalHeight);
         URL.revokeObjectURL(img.src);
-        gray.toBlob(function (grayBlob) { resolve(grayBlob); }, 'image/jpeg', 0.95);
+        gray.toBlob(function (grayBlob) { resolve(grayBlob); }, 'image/jpeg', JPEG_QUALITY);
       };
       img.src = URL.createObjectURL(blob);
     });
@@ -1995,7 +2098,7 @@
           }
           ctx.putImageData(data, r.x, r.y);
         });
-        c.toBlob(function (out) { out ? resolve(out) : reject(new Error('encode')); }, 'image/jpeg', 0.95);
+        c.toBlob(function (out) { out ? resolve(out) : reject(new Error('encode')); }, 'image/jpeg', JPEG_QUALITY);
       };
       img.src = URL.createObjectURL(blob);
     });
@@ -2091,26 +2194,54 @@
     // the GIF panel is still open leaves it hidden behind it (looks like
     // the button did nothing until GIF panel's own "סגירה" is tapped).
     $('gif-panel').classList.remove('active');
-    showQrFor(currentGifBlob);
+    showQrFor(viewGifBlob || currentGifBlob);
   });
   $('qr-close-btn').addEventListener('click', function () {
     $('qr-panel').classList.remove('active');
   });
 
   // ---------- GIF viewer ----------
+  // The GIF a guest looks at, shares or scans is built at the camera's full
+  // frame size, on demand, the moment they open it (few guests ever do, and
+  // it takes a few seconds) - only possible while their own photo's raw shots
+  // are still in memory; a photo reopened from the gallery uses the smaller
+  // GIF saved with it. The button just dims while it works.
+  var viewGifBlob = null;
+  var fullGifCache = null;
+  function getGifForSharing() {
+    if (!currentPhotoIsLive || !lastStripFrames) return Promise.resolve(currentGifBlob);
+    if (fullGifCache && fullGifCache.bw === isBw) return Promise.resolve(fullGifCache.blob);
+    var btn = $('btn-gif');
+    btn.disabled = true;
+    btn.style.opacity = '.5';
+    return composeGif(lastStripFrames, isBw, true).then(function (blob) {
+      fullGifCache = { bw: isBw, blob: blob };
+      return blob;
+    }).catch(function () {
+      return currentGifBlob;
+    }).then(function (blob) {
+      btn.disabled = false;
+      btn.style.opacity = '';
+      return blob;
+    });
+  }
   $('btn-gif').addEventListener('click', function () {
     if (!currentGifBlob) return;
-    if (resultGifUrl) URL.revokeObjectURL(resultGifUrl);
-    resultGifUrl = URL.createObjectURL(currentGifBlob);
-    $('gif-view').src = resultGifUrl;
-    $('gif-panel').classList.add('active');
+    getGifForSharing().then(function (blob) {
+      viewGifBlob = blob;
+      if (resultGifUrl) URL.revokeObjectURL(resultGifUrl);
+      resultGifUrl = URL.createObjectURL(blob);
+      $('gif-view').src = resultGifUrl;
+      $('gif-panel').classList.add('active');
+    });
   });
   $('gif-close-btn').addEventListener('click', function () {
     $('gif-panel').classList.remove('active');
   });
   $('gif-share-btn').addEventListener('click', function () {
-    if (!currentGifBlob) return;
-    var file = new File([currentGifBlob], 'memories4u.gif', { type: 'image/gif' });
+    var shareGif = viewGifBlob || currentGifBlob;
+    if (!shareGif) return;
+    var file = new File([shareGif], 'memories4u.gif', { type: 'image/gif' });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       navigator.share({
         files: [file],
@@ -2335,40 +2466,82 @@
         grid.appendChild(empty);
         return;
       }
-      var selectedCount = Object.keys(gallerySelectedIds).length;
-      $('gallery-share-selected-btn').innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px" aria-hidden="true"><path d="M4 11v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8"/><path d="M12 15V3"/><path d="M7 8l5-5 5 5"/></svg> שתף (' + selectedCount + ')';
-      $('gallery-delete-selected-btn').textContent = '🗑️ מחק (' + selectedCount + ')';
-      rows.forEach(function (row) {
-        var isSelected = !!gallerySelectedIds[row.id];
-        var item = document.createElement('div');
-        item.className = 'gallery-item' + (gallerySelectMode && isSelected ? ' selected' : '');
-        var img = document.createElement('img');
-        img.src = URL.createObjectURL(row.blob);
-        item.appendChild(img);
-        if (gallerySelectMode) {
-          var check = document.createElement('div');
-          check.className = 'gallery-check';
-          check.textContent = isSelected ? '✓' : '';
-          item.appendChild(check);
-        }
-        item.addEventListener('click', function () {
-          if (gallerySelectMode) {
-            if (gallerySelectedIds[row.id]) {
-              delete gallerySelectedIds[row.id];
-            } else {
-              gallerySelectedIds[row.id] = row.blob;
-            }
-            renderGalleryGrid();
+      updateSelectionButtons();
+      dbAllThumbs().then(function (thumbs) {
+        if (myGen !== galleryRenderGen) return;
+        galleryThumbUrls.forEach(function (u) { URL.revokeObjectURL(u); });
+        galleryThumbUrls = [];
+        rows.forEach(function (row) {
+          var isSelected = !!gallerySelectedIds[row.id];
+          var item = document.createElement('div');
+          item.className = 'gallery-item' + (gallerySelectMode && isSelected ? ' selected' : '');
+          var img = document.createElement('img');
+          if (thumbs[row.id]) {
+            var url = URL.createObjectURL(thumbs[row.id]);
+            galleryThumbUrls.push(url);
+            img.src = url;
           } else {
-            currentPhotoId = row.id;
-            galleryRowIndex = galleryRows.indexOf(row);
-            currentPhotoRects = row.photoRects || null;
-    openResult(row.blob, false, row.gifBlob);
+            enqueueThumb(row, img);
           }
+          item.appendChild(img);
+          var check = null;
+          if (gallerySelectMode) {
+            check = document.createElement('div');
+            check.className = 'gallery-check';
+            check.textContent = isSelected ? '✓' : '';
+            item.appendChild(check);
+          }
+          item.addEventListener('click', function () {
+            if (gallerySelectMode) {
+              // Toggled in place - rebuilding the whole grid on every tap
+              // re-created every tile and made selecting sluggish.
+              if (gallerySelectedIds[row.id]) {
+                delete gallerySelectedIds[row.id];
+              } else {
+                gallerySelectedIds[row.id] = row.blob;
+              }
+              var nowSelected = !!gallerySelectedIds[row.id];
+              item.classList.toggle('selected', nowSelected);
+              if (check) check.textContent = nowSelected ? '✓' : '';
+              updateSelectionButtons();
+            } else {
+              currentPhotoId = row.id;
+              galleryRowIndex = galleryRows.indexOf(row);
+              currentPhotoRects = row.photoRects || null;
+              openResult(row.blob, false, row.gifBlob);
+            }
+          });
+          grid.appendChild(item);
         });
-        grid.appendChild(item);
       });
     });
+  }
+  var galleryThumbUrls = [];
+  function updateSelectionButtons() {
+    var selectedCount = Object.keys(gallerySelectedIds).length;
+    $('gallery-share-selected-btn').innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px" aria-hidden="true"><path d="M4 11v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8"/><path d="M12 15V3"/><path d="M7 8l5-5 5 5"/></svg> שתף (' + selectedCount + ')';
+    $('gallery-delete-selected-btn').textContent = '🗑️ מחק (' + selectedCount + ')';
+  }
+  // Older photos with no thumbnail yet get one made in the background, one
+  // at a time (decoding a full-size photo is heavy), and saved for good.
+  var thumbQueue = [];
+  var thumbBusy = false;
+  function enqueueThumb(row, img) {
+    thumbQueue.push({ row: row, img: img });
+    if (!thumbBusy) runThumbQueue();
+  }
+  function runThumbQueue() {
+    var job = thumbQueue.shift();
+    if (!job) { thumbBusy = false; return; }
+    thumbBusy = true;
+    thumbFromBlob(job.row.blob).then(function (tb) {
+      dbPutThumb(job.row.id, tb);
+      if (job.img.isConnected) {
+        var url = URL.createObjectURL(tb);
+        galleryThumbUrls.push(url);
+        job.img.src = url;
+      }
+    }).catch(function () {}).then(function () { setTimeout(runThumbQueue, 30); });
   }
 
   $('gallery-back-btn').addEventListener('click', function () {
@@ -3297,7 +3470,7 @@
             c.width = size.w; c.height = size.h;
             c.getContext('2d').drawImage(img, 0, 0);
             URL.revokeObjectURL(url);
-            c.toBlob(resolve, 'image/jpeg', 0.95);
+            c.toBlob(resolve, 'image/jpeg', JPEG_QUALITY);
           };
           img.src = url;
         });
