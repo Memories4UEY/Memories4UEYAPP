@@ -166,7 +166,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260918t';
+  var APP_VERSION = '20260918w';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -1385,7 +1385,7 @@
 
   // Classic 3-photo vertical strip with event title/date + brand footer,
   // matching the printed kraft-card strips (2x6in). Rendered at
-  // STRIP_SCALE times the original 600x1800@300dpi canvas so shared/QR
+  // 3x or more (scale below) the original 600x1800@300dpi canvas so shared/QR
   // photos hold up to zoom - every DEFAULT_STRIP_DESIGN/saved-design
   // number below is a raw pixel count tuned against the original 600px
   // width, so it's scaled up here by the same factor at render time only.
@@ -1394,10 +1394,27 @@
   // print bridge's own scale-to-fit-page logic (unaffected by source
   // pixel count, only by aspect ratio, which is unchanged) still lines
   // up the same as always.
-  var STRIP_SCALE = 3;
+  // The scale is chosen per photo from the camera's real frame size, so each
+  // photo is placed at (or just above) its own native resolution and never
+  // downsampled: at least 3x, and up to 3.9x when the camera delivers more
+  // than a 3x cell can hold (this iPad gives 2052x2736 frames, which need
+  // about 3.9x). 3.9 is the ceiling because 2340x7020 = 16.4 megapixels,
+  // just under the ~16.7 MP canvas limit iOS Safari enforces - going
+  // higher would fail to render at all, and the upscaling wouldn't add
+  // real detail anyway. The aspect ratio stays exactly 1:3 at any scale.
+  var STRIP_MIN_SCALE = 3, STRIP_MAX_SCALE = 3.9;
+  function stripScaleFor(frames, cellBaseW, cellBaseH) {
+    var f = frames[0];
+    if (!f || !cellBaseW || !cellBaseH) return STRIP_MIN_SCALE;
+    var native = Math.min(f.width / cellBaseW, f.height / cellBaseH);
+    return Math.min(STRIP_MAX_SCALE, Math.max(STRIP_MIN_SCALE, Math.ceil(native * 10) / 10));
+  }
   function composeStrip(frames, design, hits) {
     design = design || getStripDesign();
-    var W = 600 * STRIP_SCALE, H = 1800 * STRIP_SCALE;
+    var cellBaseW = 600 - 2 * (design.sideTextW + design.innerPad);
+    var cellBaseH = Math.floor((1800 - design.topMargin - design.footerH - design.gap * (frames.length - 1)) / frames.length);
+    var scale = stripScaleFor(frames, cellBaseW, cellBaseH);
+    var W = Math.round(600 * scale), H = Math.round(1800 * scale);
     var canvas = document.createElement('canvas');
     canvas.width = W;
     canvas.height = H;
@@ -1406,9 +1423,9 @@
     ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(0, 0, W, H);
 
-    var sideTextW = design.sideTextW * STRIP_SCALE, innerPad = design.innerPad * STRIP_SCALE;
-    var topMargin = design.topMargin * STRIP_SCALE, gap = design.gap * STRIP_SCALE;
-    var footerH = design.footerH * STRIP_SCALE, cornerRadius = design.cornerRadius * STRIP_SCALE;
+    var sideTextW = design.sideTextW * scale, innerPad = design.innerPad * scale;
+    var topMargin = design.topMargin * scale, gap = design.gap * scale;
+    var footerH = design.footerH * scale, cornerRadius = design.cornerRadius * scale;
 
     // narrow blank side margins, like the printed kraft-paper strips
     var cellX = sideTextW + innerPad;
@@ -1426,7 +1443,7 @@
       ctx.restore();
     });
 
-    renderLayers(ctx, design, W, H, false, hits, STRIP_SCALE);
+    renderLayers(ctx, design, W, H, false, hits, scale);
     canvas.m4uPhotoRects = photoRects;
     return canvas;
   }
@@ -1527,7 +1544,8 @@
       currentBlob = blob;
       currentPhotoId = null;
       currentPhotoRects = canvas.m4uPhotoRects || null;
-      dbAdd(blob, currentGifBlob, currentPhotoRects).then(function (id) { currentPhotoId = id; });
+      lastCapture = { blob: blob, gifBlob: currentGifBlob, rects: currentPhotoRects, id: null };
+      dbAdd(blob, currentGifBlob, currentPhotoRects).then(function (id) { currentPhotoId = id; lastCapture.id = id; });
       openResult(blob, true, currentGifBlob);
     });
   }
@@ -1747,6 +1765,10 @@
   // leave the card, logo and text in color. Saved with each photo at capture;
   // photos from before this was saved have none and fall back to whole-image.
   var currentPhotoRects = null;
+  // The guest's own just-taken photo - the fixed "home" of the guest-facing
+  // album, so backing out of the album always lands there (whose back arrow
+  // goes to the camera) instead of on whichever photo was opened last.
+  var lastCapture = null;
   function openResult(blob, fromCapture, gifBlob) {
     resultReturnScreen = fromCapture ? 'screen-camera' : 'screen-gallery';
     currentPhotoIsLive = !!fromCapture;
@@ -1759,6 +1781,9 @@
     resultUrl = URL.createObjectURL(blob);
     $('result-canvas-view').src = resultUrl;
     $('result-gallery-thumb').src = resultUrl;
+    // The album shortcut belongs to the guest's own fresh photo only; on a
+    // photo reached FROM a gallery, back already returns to that gallery.
+    $('result-gallery-btn').parentNode.style.display = fromCapture ? '' : 'none';
     // Deleting is an admin-only action - even when a guest taps into an
     // individual photo from the (now guest-accessible) full gallery,
     // never show it there, only when staff reached the gallery via ⚙️.
@@ -1994,14 +2019,25 @@
     if (!currentColorBlob) return;
     var btn = this;
     btn.disabled = true;
+    toast('מעבד...');
     var goingToBw = !isBw;
-    var photoNext = goingToBw ? (bwBlobCache ? Promise.resolve(bwBlobCache) : grayscaleComposedPhoto()) : Promise.resolve(currentColorBlob);
-    // The GIF (if this was a strip capture) is toggled the same way, so
-    // sharing/downloading it after B&W matches what's shown on screen -
-    // it used to always send the original color GIF regardless.
-    var gifNext = !currentColorGifBlob ? Promise.resolve(null)
-      : goingToBw ? (bwGifBlobCache ? Promise.resolve(bwGifBlobCache) : composeGif(lastStripFrames, true))
-      : Promise.resolve(currentColorGifBlob);
+    var photoNext, gifNext;
+    try {
+      photoNext = goingToBw ? (bwBlobCache ? Promise.resolve(bwBlobCache) : grayscaleComposedPhoto()) : Promise.resolve(currentColorBlob);
+      // The GIF (if this was a strip capture) is toggled the same way, so
+      // sharing/downloading it after B&W matches what's shown on screen.
+      // Only a photo taken just now still has the 3 raw shots the GIF is
+      // rebuilt from; a photo reopened from the gallery keeps its saved
+      // GIF as-is (rebuilding it from missing shots used to throw and
+      // leave this button disabled forever).
+      gifNext = !currentColorGifBlob || !currentPhotoIsLive ? Promise.resolve(null)
+        : goingToBw ? (bwGifBlobCache ? Promise.resolve(bwGifBlobCache) : composeGif(lastStripFrames, true))
+        : Promise.resolve(currentColorGifBlob);
+    } catch (e) {
+      btn.disabled = false;
+      toast('לא הצלחתי להפוך לשחור-לבן');
+      return;
+    }
     Promise.all([photoNext, gifNext]).then(function (results) {
       var blob = results[0], gifBlob = results[1];
       if (goingToBw) {
@@ -2017,6 +2053,9 @@
       $('result-gallery-thumb').src = resultUrl;
       btn.classList.toggle('active', isBw);
       btn.disabled = false;
+    }).catch(function () {
+      btn.disabled = false;
+      toast('לא הצלחתי להפוך לשחור-לבן');
     });
   });
 
@@ -2345,6 +2384,20 @@
   }
 
   $('gallery-back-btn').addEventListener('click', function () {
+    if (galleryReturnScreen === 'screen-result') {
+      // Guest album: back always returns to the guest's OWN photo (whose
+      // back goes on to the camera), never to a photo they merely browsed
+      // to - that used to bounce between album and photo forever.
+      if (lastCapture) {
+        currentPhotoId = lastCapture.id;
+        currentPhotoRects = lastCapture.rects;
+        openResult(lastCapture.blob, true, lastCapture.gifBlob);
+      } else {
+        showScreen('screen-camera');
+        startCamera();
+      }
+      return;
+    }
     showScreen(galleryReturnScreen);
     if (galleryReturnScreen === 'screen-camera') startCamera();
     if (reopenSettingsAfterScreen) {
