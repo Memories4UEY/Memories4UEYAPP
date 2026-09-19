@@ -166,7 +166,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260920b';
+  var APP_VERSION = '20260920f';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -1833,6 +1833,7 @@
   // photos from before this was saved have none and fall back to whole-image.
   var currentPhotoRects = null;
   var resultViaLastPhotoThumb = false;
+  var resultThumbUrl = null;
   // The guest's own just-taken photo - the fixed "home" of the guest-facing
   // album, so backing out of the album always lands there (whose back arrow
   // goes to the camera) instead of on whichever photo was opened last.
@@ -1841,6 +1842,8 @@
     resultReturnScreen = fromCapture ? 'screen-camera' : 'screen-gallery';
     currentPhotoIsLive = !!fromCapture;
     resultViaLastPhotoThumb = false;
+    bwCopySaved = false;
+    bwPending = null;
     fullGifCache = null;
     viewGifBlob = null;
     $('btn-bw').disabled = false;
@@ -1852,7 +1855,6 @@
     if (resultUrl) URL.revokeObjectURL(resultUrl);
     resultUrl = URL.createObjectURL(blob);
     $('result-canvas-view').src = resultUrl;
-    $('result-gallery-thumb').src = resultUrl;
     // The album shortcut belongs to the guest's own fresh photo only; on a
     // photo reached FROM a gallery, back already returns to that gallery.
     $('result-gallery-btn').parentNode.style.display = fromCapture ? '' : 'none';
@@ -1879,7 +1881,16 @@
       // A quick way back to a guest's own just-taken photo (to reprint or
       // reshare) if they wander back to the camera screen without
       // meaning to - separate from the full staff-only gallery.
-      $('camera-last-photo-thumb').src = resultUrl;
+      // Small color thumbnails of the guest's own photo for the album/"my last
+      // photo" buttons - always the color original, never affected by the
+      // black-and-white toggle, and independent of resultUrl (which gets
+      // replaced/revoked whenever the main photo changes).
+      thumbFromBlob(blob).then(function (t) {
+        if (resultThumbUrl) URL.revokeObjectURL(resultThumbUrl);
+        resultThumbUrl = URL.createObjectURL(t);
+        $('result-gallery-thumb').src = resultThumbUrl;
+        $('camera-last-photo-thumb').src = resultThumbUrl;
+      }).catch(function () {});
       $('camera-last-photo-group').style.display = '';
     }
     // Prev/next through the gallery (staff and guests browsing the album) -
@@ -2013,6 +2024,7 @@
   // ---------- Share ----------
   $('btn-share').addEventListener('click', function () {
     if (!currentBlob) return;
+    if (bwPending) { whenBwReady().then(function () { $('btn-share').click(); }); return; }
     var file = new File([currentBlob], 'memories4u.jpg', { type: 'image/jpeg' });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       navigator.share({
@@ -2070,9 +2082,25 @@
       img.src = URL.createObjectURL(blob);
     });
   }
-  // Greys only the photo area(s) of a finished card, in place, so the white
-  // card, logo and text are never touched (nor re-drawn - no chance of them
-  // shifting) and only one big canvas is ever held in memory.
+  // Greys one photo rectangle of a canvas in place (leaving the rounded
+  // corners' outside untouched), so the white card, logo and text around it
+  // are never touched or re-drawn.
+  function grayRectInPlace(ctx, r) {
+    var data = ctx.getImageData(r.x, r.y, r.w, r.h);
+    var d = data.data;
+    for (var row = 0; row < r.h; row++) {
+      var dy = Math.min(row, r.h - 1 - row);
+      var inset = r.r > 0 && dy < r.r ? Math.ceil(r.r - Math.sqrt(r.r * r.r - (r.r - dy) * (r.r - dy))) : 0;
+      for (var col = inset; col < r.w - inset; col++) {
+        var k = (row * r.w + col) * 4;
+        var gray = d[k] * 0.299 + d[k + 1] * 0.587 + d[k + 2] * 0.114;
+        d[k] = d[k + 1] = d[k + 2] = gray;
+      }
+    }
+    ctx.putImageData(data, r.x, r.y);
+  }
+  // Greys only the photo area(s) of a finished card, in place, so only one
+  // big canvas is ever held in memory.
   function toGrayscaleWithinRects(blob, rects) {
     return new Promise(function (resolve, reject) {
       var img = new Image();
@@ -2084,20 +2112,7 @@
         var ctx = c.getContext('2d');
         ctx.drawImage(img, 0, 0);
         URL.revokeObjectURL(img.src);
-        rects.forEach(function (r) {
-          var data = ctx.getImageData(r.x, r.y, r.w, r.h);
-          var d = data.data;
-          for (var row = 0; row < r.h; row++) {
-            var dy = Math.min(row, r.h - 1 - row);
-            var inset = dy < r.r ? Math.ceil(r.r - Math.sqrt(r.r * r.r - (r.r - dy) * (r.r - dy))) : 0;
-            for (var col = inset; col < r.w - inset; col++) {
-              var k = (row * r.w + col) * 4;
-              var gray = d[k] * 0.299 + d[k + 1] * 0.587 + d[k + 2] * 0.114;
-              d[k] = d[k + 1] = d[k + 2] = gray;
-            }
-          }
-          ctx.putImageData(data, r.x, r.y);
-        });
+        rects.forEach(function (r) { grayRectInPlace(ctx, r); });
         c.toBlob(function (out) { out ? resolve(out) : reject(new Error('encode')); }, 'image/jpeg', JPEG_QUALITY);
       };
       img.src = URL.createObjectURL(blob);
@@ -2110,9 +2125,39 @@
       ? toGrayscaleWithinRects(currentColorBlob, currentPhotoRects)
       : toGrayscaleBlob(currentColorBlob);
   }
-  $('btn-bw').addEventListener('click', function () {
-    if (!currentColorBlob) return;
-    var btn = this;
+  function showResultBlob(blob) {
+    if (resultUrl) URL.revokeObjectURL(resultUrl);
+    resultUrl = URL.createObjectURL(blob);
+    $('result-canvas-view').src = resultUrl;
+  }
+  // A quick, smaller black-and-white version made from the photo already on
+  // screen (no big decode), so the button answers at once while the
+  // full-quality one - the one that is printed, shared and saved - is built
+  // in the background.
+  function quickBwPreview() {
+    var img = $('result-canvas-view');
+    if (!img.naturalWidth) return Promise.reject(new Error('no image'));
+    var scale = Math.min(1, 2200 / Math.max(img.naturalWidth, img.naturalHeight));
+    var w = Math.max(1, Math.round(img.naturalWidth * scale)), h = Math.max(1, Math.round(img.naturalHeight * scale));
+    var c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    var ctx = c.getContext('2d');
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, w, h);
+    var rects = currentPhotoRects && currentPhotoRects.length
+      ? currentPhotoRects.map(function (r) { return { x: Math.round(r.x * scale), y: Math.round(r.y * scale), w: Math.round(r.w * scale), h: Math.round(r.h * scale), r: r.r * scale }; })
+      : [{ x: 0, y: 0, w: w, h: h, r: 0 }];
+    rects.forEach(function (r) { grayRectInPlace(ctx, r); });
+    return new Promise(function (resolve) { c.toBlob(resolve, 'image/jpeg', 0.92); });
+  }
+  var bwPending = null;
+  // Print/share/QR wait for the full-quality B&W version if it's still being
+  // built, so they never send the color or the smaller preview by mistake.
+  function whenBwReady() {
+    return bwPending ? bwPending.then(function () {}, function () {}) : Promise.resolve();
+  }
+  function bwToggleSimple(btn) {
     btn.disabled = true;
     var goingToBw = !isBw;
     var photoNext, gifNext;
@@ -2143,12 +2188,44 @@
       if (resultUrl) URL.revokeObjectURL(resultUrl);
       resultUrl = URL.createObjectURL(blob);
       $('result-canvas-view').src = resultUrl;
-      $('result-gallery-thumb').src = resultUrl;
       btn.classList.toggle('active', isBw);
       btn.disabled = false;
     }).catch(function () {
       btn.disabled = false;
     });
+  }
+  $('btn-bw').addEventListener('click', function () {
+    if (!currentColorBlob) return;
+    var btn = this;
+    var goingToBw = !isBw;
+    var colorBlob = currentColorBlob;
+    if (!goingToBw || bwBlobCache) { bwToggleSimple(btn); return; }
+    isBw = true;
+    btn.classList.add('active');
+    var full = grayscaleComposedPhoto();
+    bwPending = full;
+    quickBwPreview().then(function (pb) {
+      if (isBw && currentColorBlob === colorBlob && !bwBlobCache) showResultBlob(pb);
+    }).catch(function () {});
+    full.then(function (blob) {
+      if (currentColorBlob !== colorBlob) return;
+      bwBlobCache = blob;
+      if (isBw) { currentBlob = blob; showResultBlob(blob); }
+    }).catch(function () {
+      if (currentColorBlob !== colorBlob) return;
+      isBw = false;
+      btn.classList.remove('active');
+      currentBlob = colorBlob;
+      showResultBlob(colorBlob);
+    }).then(function () { if (bwPending === full) bwPending = null; });
+    // The GIF's B&W version, only rebuildable for a photo just taken.
+    if (currentColorGifBlob && currentPhotoIsLive) {
+      composeGif(lastStripFrames, true).then(function (g) {
+        if (currentColorBlob !== colorBlob) return;
+        bwGifBlobCache = g;
+        if (isBw) currentGifBlob = g;
+      }).catch(function () {});
+    }
   });
 
   // ---------- QR share ----------
@@ -2187,7 +2264,10 @@
       $('qr-status').textContent = 'שיתוף ה-QR לא זמין כרגע. אפשר לשתף ישירות מהכפתור "שיתוף".';
     });
   }
-  $('btn-qr').addEventListener('click', function () { showQrFor(currentBlob); });
+  $('btn-qr').addEventListener('click', function () {
+    if (bwPending) { whenBwReady().then(function () { showQrFor(currentBlob); }); return; }
+    showQrFor(currentBlob);
+  });
   $('gif-qr-btn').addEventListener('click', function () {
     // The GIF panel and the QR panel share the same overlay z-index, and
     // the GIF panel comes later in the DOM, so opening the QR panel while
@@ -2359,7 +2439,6 @@
       if (resultUrl) URL.revokeObjectURL(resultUrl);
       resultUrl = URL.createObjectURL(finalBlob);
       $('result-canvas-view').src = resultUrl;
-      $('result-gallery-thumb').src = resultUrl;
       return finalBlob;
     });
   }
@@ -2375,8 +2454,21 @@
   // Resets whenever a different photo is opened (see openResult).
   var printAttemptsByCopies = {};
   function freePrintsAllowed(copies) { return copies <= 3 ? 2 : 1; }
+  // A black-and-white photo that gets printed is also kept in the album (the
+  // same gallery both staff and guests browse) as its own photo, once per
+  // photo however many times or copies it's printed.
+  var bwCopySaved = false;
+  function saveBwCopyIfNeeded() {
+    if (!isBw || bwCopySaved || !currentBlob) return;
+    bwCopySaved = true;
+    var blob = currentBlob, rects = currentPhotoRects;
+    dbAdd(blob, null, rects).then(function (id) {
+      thumbFromBlob(blob).then(function (t) { dbPutThumb(id, t); }).catch(function () {});
+    }).catch(function () { bwCopySaved = false; });
+  }
   function doPrint() {
     recomposeCurrentPhotoFromDesign().then(function () {
+      saveBwCopyIfNeeded();
       var bridge = printBridgeUrl();
       if (!bridge) {
         $('print-img').src = resultUrl;
@@ -2400,6 +2492,7 @@
   }
   $('btn-print').addEventListener('click', function () {
     if (!currentBlob) return;
+    if (bwPending) { whenBwReady().then(function () { $('btn-print').click(); }); return; }
     var copies = printCopies;
     var used = printAttemptsByCopies[copies] || 0;
     if (used >= freePrintsAllowed(copies)) {
@@ -2452,6 +2545,7 @@
     var myGen = ++galleryRenderGen;
     var grid = $('gallery-grid');
     grid.innerHTML = '';
+    grid.classList.toggle('selecting', gallerySelectMode);
     $('gallery-selection-toolbar').style.display = gallerySelectMode ? 'flex' : 'none';
     $('gallery-select-btn').textContent = gallerySelectMode ? '✕ בטל בחירה' : '☑ בחירה';
     var isGuestGallery = galleryReturnScreen === 'screen-result';
@@ -2484,25 +2578,21 @@
             enqueueThumb(row, img);
           }
           item.appendChild(img);
+          item._row = row;
           var check = null;
           if (gallerySelectMode) {
             check = document.createElement('div');
             check.className = 'gallery-check';
             check.textContent = isSelected ? '✓' : '';
             item.appendChild(check);
+            item._check = check;
           }
           item.addEventListener('click', function () {
             if (gallerySelectMode) {
+              if (dragSelJustEnded) return;
               // Toggled in place - rebuilding the whole grid on every tap
               // re-created every tile and made selecting sluggish.
-              if (gallerySelectedIds[row.id]) {
-                delete gallerySelectedIds[row.id];
-              } else {
-                gallerySelectedIds[row.id] = row.blob;
-              }
-              var nowSelected = !!gallerySelectedIds[row.id];
-              item.classList.toggle('selected', nowSelected);
-              if (check) check.textContent = nowSelected ? '✓' : '';
+              setItemSelected(item, !gallerySelectedIds[row.id]);
               updateSelectionButtons();
             } else {
               currentPhotoId = row.id;
@@ -2521,7 +2611,100 @@
     var selectedCount = Object.keys(gallerySelectedIds).length;
     $('gallery-share-selected-btn').innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px" aria-hidden="true"><path d="M4 11v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8"/><path d="M12 15V3"/><path d="M7 8l5-5 5 5"/></svg> שתף (' + selectedCount + ')';
     $('gallery-delete-selected-btn').textContent = '🗑️ מחק (' + selectedCount + ')';
+    $('gallery-select-all-btn').textContent = galleryRows.length && selectedCount === galleryRows.length ? 'בטל הכל' : 'בחר הכל';
   }
+  function setItemSelected(item, on) {
+    var row = item._row;
+    if (!row) return;
+    if (on) gallerySelectedIds[row.id] = row.blob; else delete gallerySelectedIds[row.id];
+    item.classList.toggle('selected', on);
+    if (item._check) item._check.textContent = on ? '✓' : '';
+  }
+  $('gallery-select-all-btn').addEventListener('click', function () {
+    var allSelected = galleryRows.length && Object.keys(gallerySelectedIds).length === galleryRows.length;
+    Array.prototype.forEach.call($('gallery-grid').querySelectorAll('.gallery-item'), function (item) {
+      setItemSelected(item, !allSelected);
+    });
+    updateSelectionButtons();
+  });
+
+  // Drag-to-select, like the Photos app: in selection mode, press on a tile and
+  // slide a finger sideways across others to select (or, if the first tile was
+  // already selected, deselect) everything passed over, including tiles the
+  // finger skipped over; near the top/bottom edge the grid scrolls by itself.
+  // A mostly-vertical drag is left to normal scrolling.
+  var dragSel = null;
+  var dragSelJustEnded = false;
+  var dragScrollTimer = null;
+  var galleryGridEl = $('gallery-grid');
+  function tileAtPoint(x, y) {
+    var el = document.elementFromPoint(x, y);
+    return el && el.closest ? el.closest('#gallery-grid .gallery-item') : null;
+  }
+  function applyDragRange(a, b, on) {
+    var items = Array.prototype.slice.call(galleryGridEl.querySelectorAll('.gallery-item'));
+    var ia = items.indexOf(a), ib = items.indexOf(b);
+    if (ia < 0 || ib < 0) return;
+    for (var k = Math.min(ia, ib); k <= Math.max(ia, ib); k++) setItemSelected(items[k], on);
+  }
+  function dragSelectUpdate() {
+    var tile = tileAtPoint(dragSel.ex, dragSel.ey);
+    if (tile && tile !== dragSel.last) {
+      applyDragRange(dragSel.last, tile, dragSel.mode);
+      dragSel.last = tile;
+      updateSelectionButtons();
+    }
+  }
+  function dragScrollTick() {
+    if (!dragSel || !dragSel.active) { dragScrollTimer = null; return; }
+    var rect = galleryGridEl.getBoundingClientRect();
+    var edge = 70, speed = 0;
+    if (dragSel.ey < rect.top + edge) speed = -Math.ceil((rect.top + edge - dragSel.ey) / 6);
+    else if (dragSel.ey > rect.bottom - edge) speed = Math.ceil((dragSel.ey - (rect.bottom - edge)) / 6);
+    if (speed) {
+      galleryGridEl.scrollTop += speed;
+      dragSelectUpdate();
+    }
+    dragScrollTimer = requestAnimationFrame(dragScrollTick);
+  }
+  galleryGridEl.addEventListener('pointerdown', function (e) {
+    if (!gallerySelectMode) return;
+    var tile = e.target.closest ? e.target.closest('.gallery-item') : null;
+    if (!tile) return;
+    dragSel = { id: e.pointerId, x: e.clientX, y: e.clientY, ex: e.clientX, ey: e.clientY, start: tile, last: tile, active: false, mode: true };
+  });
+  galleryGridEl.addEventListener('pointermove', function (e) {
+    if (!dragSel || e.pointerId !== dragSel.id) return;
+    dragSel.ex = e.clientX;
+    dragSel.ey = e.clientY;
+    if (!dragSel.active) {
+      var dx = e.clientX - dragSel.x, dy = e.clientY - dragSel.y;
+      var horizontal = Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy);
+      var mouseDrag = e.pointerType === 'mouse' && Math.max(Math.abs(dx), Math.abs(dy)) > 8;
+      if (!horizontal && !mouseDrag) return;
+      dragSel.active = true;
+      dragSel.mode = !gallerySelectedIds[dragSel.start._row.id];
+      setItemSelected(dragSel.start, dragSel.mode);
+      updateSelectionButtons();
+      try { galleryGridEl.setPointerCapture(e.pointerId); } catch (err) {}
+      dragScrollTimer = requestAnimationFrame(dragScrollTick);
+    }
+    e.preventDefault();
+    dragSelectUpdate();
+  });
+  function endDragSelect() {
+    if (dragSel && dragSel.active) {
+      dragSelJustEnded = true;
+      setTimeout(function () { dragSelJustEnded = false; }, 60);
+    }
+    dragSel = null;
+  }
+  galleryGridEl.addEventListener('pointerup', endDragSelect);
+  galleryGridEl.addEventListener('pointercancel', endDragSelect);
+  galleryGridEl.addEventListener('touchmove', function (e) {
+    if (dragSel && dragSel.active) e.preventDefault();
+  }, { passive: false });
+
   // Older photos with no thumbnail yet get one made in the background, one
   // at a time (decoding a full-size photo is heavy), and saved for good.
   var thumbQueue = [];
