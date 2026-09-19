@@ -166,7 +166,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260920h';
+  var APP_VERSION = '20260920i';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -477,22 +477,6 @@
     if (turningOn) {
       $('settings-panel').classList.remove('active');
       flushActiveEventSync();
-    }
-  });
-  // Full screen on/off (staff, from settings) - asks the browser to hide the
-  // status bar and browser bars where the device allows it; in some modes
-  // (e.g. an iPad app opened from the home screen) it may not be available.
-  $('fullscreen-btn').addEventListener('click', function () {
-    var el = document.documentElement;
-    var isFull = document.fullscreenElement || document.webkitFullscreenElement;
-    var enter = el.requestFullscreen || el.webkitRequestFullscreen;
-    var leave = document.exitFullscreen || document.webkitExitFullscreen;
-    try {
-      var p = isFull ? (leave && leave.call(document)) : (enter && enter.call(el));
-      if (!isFull && !enter) { toast('מסך מלא לא נתמך במכשיר או במצב הזה'); return; }
-      if (p && p.catch) p.catch(function () { toast('המכשיר לא אישר מסך מלא'); });
-    } catch (e) {
-      toast('מסך מלא לא נתמך במכשיר או במצב הזה');
     }
   });
   // The overlay's own gear (same corner as the welcome screen's) is the
@@ -911,6 +895,58 @@
     }
   }
 
+  // The selfie camera reaches the browser as a compressed video stream, which
+  // comes out slightly softer than a still from the Camera app. A gentle
+  // unsharp mask on each captured frame (luma only, so no colored halos,
+  // with a small dead-zone so camera noise isn't boosted) brings back some
+  // crispness. CAPTURE_SHARPEN_AMOUNT = 0 turns it off completely.
+  var CAPTURE_SHARPEN_AMOUNT = 0.5;
+  var CAPTURE_SHARPEN_RADIUS = 2;
+  function sharpenCanvasInPlace(canvas, amount, radius) {
+    if (!amount) return;
+    var w = canvas.width, h = canvas.height;
+    var ctx = canvas.getContext('2d');
+    var image = ctx.getImageData(0, 0, w, h);
+    var d = image.data;
+    var n = w * h;
+    var y = new Float32Array(n);
+    var i, x, yy;
+    for (i = 0; i < n; i++) y[i] = d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114;
+    var tmp = new Float32Array(n), blur = new Float32Array(n);
+    var span = radius * 2 + 1;
+    // horizontal box blur (running sum, edges clamped)
+    for (yy = 0; yy < h; yy++) {
+      var row = yy * w, sum = 0;
+      for (x = -radius; x <= radius; x++) sum += y[row + Math.min(w - 1, Math.max(0, x))];
+      for (x = 0; x < w; x++) {
+        tmp[row + x] = sum / span;
+        sum += y[row + Math.min(w - 1, x + radius + 1)] - y[row + Math.max(0, x - radius)];
+      }
+    }
+    // vertical box blur
+    for (x = 0; x < w; x++) {
+      var s2 = 0;
+      for (yy = -radius; yy <= radius; yy++) s2 += tmp[Math.min(h - 1, Math.max(0, yy)) * w + x];
+      for (yy = 0; yy < h; yy++) {
+        blur[yy * w + x] = s2 / span;
+        s2 += tmp[Math.min(h - 1, yy + radius + 1) * w + x] - tmp[Math.max(0, yy - radius) * w + x];
+      }
+    }
+    var core = 2, limit = 40;
+    for (i = 0; i < n; i++) {
+      var diff = y[i] - blur[i];
+      var ad = diff < 0 ? -diff : diff;
+      if (ad < core) continue;
+      var delta = amount * diff;
+      if (delta > limit) delta = limit; else if (delta < -limit) delta = -limit;
+      var k = i * 4;
+      d[k] += delta;
+      d[k + 1] += delta;
+      d[k + 2] += delta;
+    }
+    ctx.putImageData(image, 0, 0);
+  }
+
   // Raw mirrored capture of the current video frame, no branding applied yet.
   function rawFrame() {
     var vw = video.videoWidth || 1080;
@@ -924,6 +960,7 @@
     ctx.scale(-1, 1);
     ctx.drawImage(video, 0, 0, vw, vh);
     ctx.restore();
+    sharpenCanvasInPlace(canvas, CAPTURE_SHARPEN_AMOUNT, CAPTURE_SHARPEN_RADIUS);
     return canvas;
   }
 
@@ -2625,7 +2662,7 @@
   var galleryThumbUrls = [];
   function updateSelectionButtons() {
     var selectedCount = Object.keys(gallerySelectedIds).length;
-    $('gallery-share-selected-btn').innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px" aria-hidden="true"><path d="M4 11v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8"/><path d="M12 15V3"/><path d="M7 8l5-5 5 5"/></svg> שתף (' + selectedCount + ')';
+    $('gallery-share-selected-btn').innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px" aria-hidden="true"><path d="M4 11v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8"/><path d="M12 15V3"/><path d="M7 8l5-5 5 5"/></svg> PDF (' + selectedCount + ')';
     $('gallery-delete-selected-btn').textContent = '🗑️ מחק (' + selectedCount + ')';
     $('gallery-select-all-btn').textContent = galleryRows.length && selectedCount === galleryRows.length ? 'בטל הכל' : 'בחר הכל';
     // A clear running count in the title while selecting (the buttons carry it
@@ -2800,16 +2837,13 @@
       renderGalleryGrid();
     });
   });
+  // "Share" of the selected photos is now a PDF of just those photos, downloaded
+  // straight to the device - the system share sheet kept sending it to Google
+  // Drive on this iPad.
   $('gallery-share-selected-btn').addEventListener('click', function () {
-    var blobs = Object.keys(gallerySelectedIds).map(function (id, i) {
-      return new File([gallerySelectedIds[id]], 'memories4u-' + (i + 1) + '.jpg', { type: 'image/jpeg' });
-    });
-    if (!blobs.length) { toast('לא סימנתם תמונות'); return; }
-    if (navigator.canShare && navigator.canShare({ files: blobs })) {
-      navigator.share({ files: blobs, title: 'Memories4U' }).catch(function () {});
-    } else {
-      toast('השיתוף המרובה לא נתמך במכשיר הזה - נסו לסמן פחות תמונות');
-    }
+    var chosen = galleryRows.filter(function (row) { return gallerySelectedIds[row.id]; });
+    if (!chosen.length) { toast('לא סימנתם תמונות'); return; }
+    exportRowsPdf(chosen, 'memories4u-selected-photos.pdf');
   });
 
   // ---------- Design editor ----------
@@ -3719,43 +3753,30 @@
       return new Blob(parts, { type: 'application/pdf' });
     });
   }
+  // Builds and downloads a PDF (one page per photo, oldest first) from the
+  // given gallery rows - used by both the whole-event export and the
+  // "export the selected photos" button.
+  function exportRowsPdf(rows, fileName, onDone) {
+    if (!rows.length) {
+      toast('אין תמונות לייצוא');
+      return;
+    }
+    toast('מכין PDF...');
+    // oldest first, so page 1 is the first photo
+    var ordered = rows.slice().sort(function (a, b) { return a.createdAt - b.createdAt; });
+    Promise.all(ordered.map(function (row) { return asJpegBlob(row.blob); })).then(buildPhotosPdf).then(function (pdf) {
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(pdf);
+      a.download = fileName;
+      a.click();
+      toast('ה-PDF מוכן - חפש את חץ ההורדות בסרגל העליון של ספארי כדי לפתוח אותו');
+      if (onDone) onDone();
+    }).catch(function () { toast('הייצוא נכשל - נסו שוב'); });
+  }
   function exportEventPdf(eventName, onDone) {
     dbAllForEvent(eventName).then(function (rows) {
-      if (!rows.length) {
-        toast('אין תמונות לייצוא');
-        return;
-      }
-      toast('מכין PDF...');
-      // oldest first, so page 1 is the first photo of the event
-      var ordered = rows.slice().reverse();
-      Promise.all(ordered.map(function (row) { return asJpegBlob(row.blob); })).then(buildPhotosPdf).then(function (pdf) {
-        var a = document.createElement('a');
-        a.href = URL.createObjectURL(pdf);
-        a.download = 'memories4u-event-photos.pdf';
-        a.click();
-        toast('ה-PDF מוכן - חפש את חץ ההורדות בסרגל העליון של ספארי כדי לפתוח אותו');
-        if (onDone) onDone();
-      }).catch(function () { toast('הייצוא נכשל - נסו שוב'); });
+      exportRowsPdf(rows, 'memories4u-event-photos.pdf', onDone);
     });
-  }
-  $('export-all-btn').addEventListener('click', function () { exportEventPdf(getActiveEventName()); });
-
-  // ---------- Start ----------
-  // Keeps the iPad's screen from auto-locking while this app is open -
-  // it's a staffed kiosk running non-stop through an event, and the
-  // screen dimming/locking mid-use would force staff to unlock it (or
-  // worse, interrupt a guest mid-photo). The lock is silently released by
-  // the browser whenever the screen actually locks or the app gets
-  // backgrounded, so it has to be re-requested every time the app comes
-  // back to the front, not just once at load - handled in the same
-  // visibilitychange listener below that already restarts the camera.
-  preloadDesignImages(getStripDesign());
-  preloadDesignImages(getWideDesign());
-
-  var wakeLock = null;
-  function requestWakeLock() {
-    if (!('wakeLock' in navigator)) return;
-    navigator.wakeLock.request('screen').then(function (lock) { wakeLock = lock; }).catch(function () {});
   }
   requestWakeLock();
 
