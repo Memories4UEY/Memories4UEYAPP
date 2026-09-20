@@ -178,7 +178,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260921d';
+  var APP_VERSION = '20260921f';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -4223,6 +4223,8 @@
     if ($('brb-overlay').classList.contains('active')) overlay = 'brb';
     else if ($('qr-panel').classList.contains('active')) overlay = 'qr';
     else if ($('gif-panel').classList.contains('active')) overlay = 'gif';
+    else if ($('admin-modal').classList.contains('active')) overlay = 'admin';
+    else if ($('settings-panel').classList.contains('active')) overlay = 'settings';
     return {
       screen: activeScreenId(),
       overlay: overlay,
@@ -4281,6 +4283,8 @@
       if ($('qr-panel').classList.contains('active')) remoteClick('qr-close-btn');
       else if ($('gif-panel').classList.contains('active')) remoteClick('gif-close-btn');
     },
+    close_settings: function () { remoteClick('settings-close-btn'); },
+    close_admin: function () { remoteClick('admin-modal-cancel'); },
     back: function (s) {
       if (s === 'screen-result') remoteClick('result-back-btn');
       else if (s === 'screen-camera') remoteClick('camera-admin-btn');
@@ -4311,6 +4315,9 @@
   var remoteBrokerIdx = 0;
   var remoteWatchAt = 0;
   var remoteSeen = {};
+  var remoteAck = '';
+  var remoteRx = 0;
+  var remoteRej = '';
   var remoteSending = false;
   function remoteSecret() { return localStorage.getItem(REMOTE_SECRET_KEY) || ''; }
   function remoteHex(buf) {
@@ -4358,10 +4365,15 @@
       if (kind !== 'c') return;
       var msg = JSON.parse(new TextDecoder().decode(bytes));
       var now = Date.now();
-      if (!msg.id || remoteSeen[msg.id] || Math.abs(now - msg.ts) > REMOTE_CMD_MAX_AGE_MS) return;
+      remoteRx++;
+      if (!msg.id) { remoteRej = 'bad'; return; }
+      if (remoteSeen[msg.id]) return;
+      if (Math.abs(now - msg.ts) > REMOTE_CMD_MAX_AGE_MS) { remoteRej = 'old ' + Math.round((now - msg.ts) / 1000) + 's'; return; }
       remoteSeen[msg.id] = now;
       Object.keys(remoteSeen).forEach(function (k) { if (now - remoteSeen[k] > 60000) delete remoteSeen[k]; });
       runRemoteCommand(msg.cmd);
+      remoteAck = msg.id;
+      remoteLastStateAt = 0;
     }).catch(function () {});
   }
   function remoteConnect() {
@@ -4379,7 +4391,9 @@
     c.on('connect', function () {
       wasUp = true;
       remoteConnected = true;
-      c.subscribe([remoteCtx.topic + '/c', remoteCtx.topic + '/w']);
+      c.subscribe([remoteCtx.topic + '/c', remoteCtx.topic + '/w'], function (err, granted) {
+        if (err || !granted || granted.some(function (g) { return g.qos === 128; })) gone();
+      });
     });
     c.on('message', function (topic, payload) { remoteHandle(topic, payload); });
     var ended = false;
@@ -4411,6 +4425,10 @@
     remoteLastStateAt = now;
     var state = remoteState();
     state.ts = now;
+    state.ack = remoteAck;
+    state.rx = remoteRx;
+    state.rej = remoteRej;
+    state.broker = REMOTE_BROKERS[remoteBrokerIdx % REMOTE_BROKERS.length].replace(/^wss:\/\//, '').replace(/[:\/].*$/, '');
     remotePublish('s', new TextEncoder().encode(JSON.stringify(state)), true)
       .then(function () {
         if (!watching) return;

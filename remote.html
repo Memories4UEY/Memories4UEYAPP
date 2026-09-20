@@ -25,6 +25,8 @@
   #dot.ok { background:var(--ok); }
   #preview { width:100%; max-height:38vh; object-fit:contain; background:#000; border-radius:14px; display:none; }
   #screenName { color:var(--muted); font-size:15px; padding:18px 8px; text-align:center; line-height:1.5; }
+  #cmdStatus { min-height:22px; font-size:15px; text-align:center; }
+  #diag { color:#6f6959; font-size:11px; text-align:center; direction:ltr; }
   #buttons { width:100%; display:grid; grid-template-columns:1fr 1fr; gap:10px; }
   #buttons .wide { grid-column:1 / -1; }
   #buttons .big { font-size:22px; padding:20px 10px; }
@@ -46,6 +48,8 @@
   <img id="preview" alt="">
   <div id="screenName"></div>
   <div id="buttons"></div>
+  <div id="cmdStatus"></div>
+  <div id="diag"></div>
 </div>
 <script src="assets/js/mqtt.min.js?v=1"></script>
 <script>
@@ -69,6 +73,9 @@
   }
   var ctx = null, client = null, brokerIdx = 0, connected = false, gotState = false;
   var state = null, stateAt = 0, lastFrameUrl = null, lastSig = '';
+  var clockOffset = 0;   // iPad clock minus this phone's clock, so commands are stamped in the iPad's time
+  var pending = null;    // {id, at} of the last command awaiting the iPad's confirmation
+  var OVERLAY_NAMES = { brb: 'מסך "תכף נשוב" מוצג באייפד', qr: 'באייפד מוצג עכשיו QR', gif: 'באייפד מוצג עכשיו GIF', settings: 'באייפד פתוח מסך ההגדרות', admin: 'באייפד מוצג חלון סיסמה' };
   var NAMES = {
     'screen-lock': 'מסך נעילה', 'screen-welcome': 'מסך פתיחה', 'screen-ready': 'מוכנים לצלם',
     'screen-camera': 'מצלמה', 'screen-result': 'התמונה', 'screen-gallery': 'גלריה',
@@ -141,6 +148,7 @@
           gotState = true;
           state = JSON.parse(new TextDecoder().decode(bytes));
           stateAt = Date.now();
+          if (state.ts) clockOffset = state.ts - stateAt;
           render();
         } else if (kind === 'f') {
           var u = URL.createObjectURL(new Blob([bytes], { type: 'image/jpeg' }));
@@ -158,7 +166,10 @@
     if (btn) { btn.disabled = true; setTimeout(function () { btn.disabled = false; }, 700); }
     if (navigator.vibrate) navigator.vibrate(30);
     var id = Math.random().toString(16).slice(2) + Date.now().toString(16);
-    publish('c', new TextEncoder().encode(JSON.stringify({ cmd: cmd, id: id, ts: Date.now() })));
+    pending = { id: id, at: Date.now() };
+    $('cmdStatus').style.color = 'var(--muted)';
+    $('cmdStatus').textContent = 'שולח…';
+    publish('c', new TextEncoder().encode(JSON.stringify({ cmd: cmd, id: id, ts: Date.now() + clockOffset })));
   }
   function b(label, cmd, cls, disabled) {
     return '<button class="' + (cls || '') + '" data-cmd="' + cmd + '"' + (disabled ? ' disabled' : '') + '>' + label + '</button>';
@@ -168,6 +179,8 @@
     var h = '';
     if (st.overlay === 'brb') return b('✅ חזרתי, סגירת ההודעה', 'brb_off', 'gold wide big');
     if (st.overlay === 'qr' || st.overlay === 'gif') return b('סגירה', 'close', 'gold wide big');
+    if (st.overlay === 'settings') return b('סגירת ההגדרות באייפד', 'close_settings', 'gold wide big');
+    if (st.overlay === 'admin') return b('סגירת חלון הסיסמה באייפד', 'close_admin', 'gold wide big');
     var s = st.screen;
     if (s === 'screen-welcome' || s === 'screen-ready') h += b('התחילו לצלם', 'start', 'gold wide big');
     else if (s === 'screen-camera') { h += b(st.capturing ? 'מצלם…' : '📸 צלם', 'shoot', 'gold wide big', st.capturing); h += b('חזרה', 'back', 'wide'); }
@@ -199,7 +212,12 @@
     $('statusText').textContent = txt;
     var showImg = online && (st.screen === 'screen-camera' || st.screen === 'screen-result') && !st.overlay;
     $('preview').style.display = showImg ? 'block' : 'none';
-    $('screenName').textContent = !online ? 'בדקו שהאייפד פתוח על האפליקציה ושיש לו אינטרנט' : (st.overlay === 'brb' ? 'מסך "תכף נשוב" מוצג' : (showImg ? '' : (NAMES[st.screen] || '')));
+    $('screenName').textContent = !online ? 'בדקו שהאייפד פתוח על האפליקציה ושיש לו אינטרנט' : (OVERLAY_NAMES[st.overlay] || (showImg ? '' : (NAMES[st.screen] || '')));
+    if (pending) {
+      if (st.ack === pending.id) { $('cmdStatus').style.color = 'var(--ok)'; $('cmdStatus').textContent = '✓ בוצע'; pending = null; setTimeout(function () { if (!pending) $('cmdStatus').textContent = ''; }, 1500); }
+      else if (Date.now() - pending.at > 6000) { $('cmdStatus').style.color = 'var(--bad)'; $('cmdStatus').textContent = 'האייפד לא הגיב לפקודה' + (st.rej ? ' (' + st.rej + ')' : ''); pending = null; }
+    }
+    $('diag').textContent = state ? ((st.broker || '') + ' | clock ' + Math.round(clockOffset / 1000) + 's | rx ' + (st.rx || 0) + (st.rej ? ' | ' + st.rej : '') + ' | v' + (st.version || '')) : '';
     var sig = JSON.stringify([online, st.screen, st.overlay, st.capturing, st.bw, st.copies]);
     if (sig !== lastSig) { lastSig = sig; $('buttons').innerHTML = buttonsFor(st, online); }
   }
