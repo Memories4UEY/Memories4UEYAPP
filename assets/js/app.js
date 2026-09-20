@@ -166,7 +166,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260920n';
+  var APP_VERSION = '20260920p';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -1912,6 +1912,8 @@
     if (resultUrl) URL.revokeObjectURL(resultUrl);
     resultUrl = URL.createObjectURL(blob);
     $('result-canvas-view').src = resultUrl;
+    var openedId = currentPhotoId;
+    $('result-canvas-view').onerror = function () { recoverResultImage(blob, openedId); };
     // The album shortcut belongs to the guest's own fresh photo only; on a
     // photo reached FROM a gallery, back already returns to that gallery.
     $('result-gallery-btn').parentNode.style.display = fromCapture ? '' : 'none';
@@ -2062,6 +2064,40 @@
     img.addEventListener('pointerup', up);
     img.addEventListener('pointercancel', up);
   })();
+
+  // If a saved photo's image won't load (e.g. its stored file became
+  // unreadable), first try re-reading its bytes into a fresh copy, and if that
+  // fails too show its small saved thumbnail rather than a broken picture.
+  function dbGetThumb(id) {
+    if (id == null) return Promise.resolve(null);
+    return thumbDbPromise.then(function (db) {
+      if (!db) return null;
+      return new Promise(function (resolve) {
+        var req = db.transaction(THUMB_STORE, 'readonly').objectStore(THUMB_STORE).get(id);
+        req.onsuccess = function () { resolve(req.result ? req.result.blob : null); };
+        req.onerror = function () { resolve(null); };
+      });
+    });
+  }
+  function recoverResultImage(blob, id) {
+    var img = $('result-canvas-view');
+    img.onerror = null;
+    function fallbackToThumb() {
+      dbGetThumb(id).then(function (tb) {
+        if (!tb) return;
+        if (resultUrl) URL.revokeObjectURL(resultUrl);
+        resultUrl = URL.createObjectURL(tb);
+        img.src = resultUrl;
+      });
+    }
+    blob.arrayBuffer().then(function (buf) {
+      var copy = new Blob([buf], { type: blob.type || 'image/jpeg' });
+      if (resultUrl) URL.revokeObjectURL(resultUrl);
+      resultUrl = URL.createObjectURL(copy);
+      img.onerror = fallbackToThumb;
+      img.src = resultUrl;
+    }).catch(fallbackToThumb);
+  }
 
   // Lays out, from the photo's own measured edges outward: photo, then
   // (staff gallery only) the prev/next arrow just outside it, then the
@@ -2703,6 +2739,7 @@
         return;
       }
       updateSelectionButtons();
+      checkGalleryIntegrity(rows, isGuestGallery);
       dbAllThumbs().then(function (thumbs) {
         if (myGen !== galleryRenderGen) return;
         galleryThumbUrls.forEach(function (u) { URL.revokeObjectURL(u); });
@@ -2748,6 +2785,29 @@
       });
     });
   }
+  // Admin gallery only: quietly checks that each photo's own file can still be
+  // read and starts with a JPEG signature; if some can't (an unreadable or
+  // damaged saved file), a single button offers the one-tap repair from the PDF
+  // that was exported earlier (the same PDF import as in settings).
+  function checkGalleryIntegrity(rows, isGuestGallery) {
+    var btn = $('gallery-repair-btn');
+    btn.style.display = 'none';
+    if (isGuestGallery) return;
+    Promise.all(rows.map(function (row) {
+      return row.blob.slice(0, 2).arrayBuffer().then(function (buf) {
+        var b = new Uint8Array(buf);
+        return b[0] === 0xFF && b[1] === 0xD8;
+      }, function () { return false; });
+    })).then(function (oks) {
+      var broken = oks.filter(function (ok) { return !ok; }).length;
+      if (!broken) return;
+      btn.textContent = '⚠ ' + broken + ' תמונות פגומות - לחץ לתיקון מהקובץ PDF';
+      btn.style.display = '';
+    });
+  }
+  $('gallery-repair-btn').addEventListener('click', function () {
+    $('import-pdf-input').click();
+  });
   var galleryThumbUrls = [];
   function updateSelectionButtons() {
     var selectedCount = Object.keys(gallerySelectedIds).length;
@@ -3862,6 +3922,205 @@
       if (onDone) onDone();
     }).catch(function () { toast('הייצוא נכשל - נסו שוב'); });
   }
+  // ---------- Replace the album's photos with the ones inside a PDF ----------
+  // Reads the JPEG pages out of a PDF made by this app's own PDF export, matches
+  // each to the album photo it came from by comparing tiny grayscale
+  // fingerprints (the album's saved thumbnails when there are any, so it also
+  // works when a photo's own file can't be read), and swaps each photo's image
+  // in place - same album slot, date and order. Each image is copied into its
+  // own standalone bytes before saving, so the album never keeps a reference to
+  // the (temporary) picked file.
+  function readSlice(file, start, end) {
+    return file.slice(start, end).arrayBuffer();
+  }
+  function readPdfJpegs(file) {
+    var td = new TextDecoder('latin1');
+    return readSlice(file, Math.max(0, file.size - 2048), file.size).then(function (buf) {
+      var m = td.decode(buf).match(/startxref\s+(\d+)/);
+      if (!m) throw new Error('not a pdf');
+      return readSlice(file, parseInt(m[1], 10), file.size);
+    }).then(function (buf) {
+      var text = td.decode(buf);
+      var head = text.match(/^xref\s+0\s+(\d+)\s/);
+      if (!head) throw new Error('unknown pdf');
+      var total = parseInt(head[1], 10);
+      var lines = text.slice(head[0].length).split('\n');
+      var offsets = [];
+      for (var n = 1; n < total; n++) offsets[n] = parseInt(lines[n].slice(0, 10), 10);
+      var images = [];
+      var chain = Promise.resolve();
+      for (var num = 1; num < total; num++) {
+        (function (objNum) {
+          chain = chain.then(function () {
+            return readSlice(file, offsets[objNum], offsets[objNum] + 400).then(function (b) {
+              var t = td.decode(b);
+              var s = t.indexOf('stream\n'), cut = t.indexOf('endobj');
+              if (s < 0 || (cut >= 0 && cut < s)) return;
+              var dict = t.slice(0, s);
+              if (dict.indexOf('/Subtype /Image') < 0 || dict.indexOf('/DCTDecode') < 0) return;
+              var len = dict.match(/\/Length (\d+)/);
+              var wm = dict.match(/\/Width (\d+)/);
+              if (!len) return;
+              var start = offsets[objNum] + s + 7;
+              images.push({ slice: file.slice(start, start + parseInt(len[1], 10), 'image/jpeg'), w: wm ? +wm[1] : 0 });
+            });
+          });
+        })(num);
+      }
+      return chain.then(function () { return images; });
+    });
+  }
+  function imageSignature(blob) {
+    return new Promise(function (resolve, reject) {
+      var img = new Image();
+      var url = URL.createObjectURL(blob);
+      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('decode')); };
+      img.onload = function () {
+        var src = img, sw = img.naturalWidth, sh = img.naturalHeight;
+        while (sw > 96 || sh > 288) {
+          var nw = Math.max(24, Math.round(sw / 2)), nh = Math.max(72, Math.round(sh / 2));
+          var c = document.createElement('canvas');
+          c.width = nw; c.height = nh;
+          var cx = c.getContext('2d');
+          cx.imageSmoothingQuality = 'high';
+          cx.drawImage(src, 0, 0, nw, nh);
+          src = c; sw = nw; sh = nh;
+        }
+        var f = document.createElement('canvas');
+        f.width = 24; f.height = 72;
+        var fx = f.getContext('2d');
+        fx.imageSmoothingQuality = 'high';
+        fx.drawImage(src, 0, 0, 24, 72);
+        URL.revokeObjectURL(url);
+        var d = fx.getImageData(0, 0, 24, 72).data;
+        var sig = new Float32Array(24 * 72), mean = 0, i;
+        for (i = 0; i < sig.length; i++) { sig[i] = d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114; mean += sig[i]; }
+        mean /= sig.length;
+        for (i = 0; i < sig.length; i++) sig[i] -= mean;
+        resolve(sig);
+      };
+      img.src = url;
+    });
+  }
+  function sigDistance(a, b) {
+    var s = 0;
+    for (var i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]);
+    return s / a.length;
+  }
+  function dbReplaceBlob(id, blob, rects) {
+    return dbPromise.then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction(STORE, 'readwrite');
+        var st = tx.objectStore(STORE);
+        var g = st.get(id);
+        var found = false;
+        g.onsuccess = function () {
+          var rec = g.result;
+          if (!rec) return;
+          found = true;
+          rec.blob = blob;
+          rec.photoRects = rects;
+          st.put(rec);
+        };
+        tx.oncomplete = function () { resolve(found); };
+        tx.onerror = function () { reject(tx.error); };
+      });
+    });
+  }
+  function rectsForStripWidth(w) {
+    var s = w / 600;
+    return [40, 550, 1060].map(function (y) { return { x: Math.round(36 * s), y: Math.round(y * s), w: Math.round(528 * s), h: Math.round(490 * s), r: 7 * s }; });
+  }
+  function importPdfReplace(file) {
+    var btn = $('import-pdf-btn');
+    var label = btn.textContent;
+    var repairBtn = $('gallery-repair-btn');
+    function progress(t) {
+      btn.textContent = t;
+      if (repairBtn.style.display !== 'none') { repairBtn.textContent = t; repairBtn.disabled = true; }
+    }
+    function done() {
+      btn.textContent = label;
+      btn.disabled = false;
+      repairBtn.disabled = false;
+      // re-draw the open gallery so repaired photos show and the warning re-checks itself
+      if ($('screen-gallery').classList.contains('active')) renderGalleryGrid();
+    }
+    if (!getActiveEventName()) { toast('צריך לטעון אירוע קודם'); return; }
+    btn.disabled = true;
+    progress('קורא את ה-PDF...');
+    var pdfImages, rows, thumbs, pdfSigs = [], rowSigs = [];
+    Promise.all([readPdfJpegs(file), dbAllForActiveEvent(), dbAllThumbs()]).then(function (r) {
+      pdfImages = r[0];
+      rows = r[1];
+      thumbs = r[2];
+      if (!pdfImages.length) throw new Error('empty');
+      var chain = Promise.resolve();
+      rows.forEach(function (row, i) {
+        chain = chain.then(function () {
+          progress('מנתח אלבום ' + (i + 1) + '/' + rows.length);
+          // the saved thumbnail first (small and always readable); the photo's own file as a fallback
+          return imageSignature(thumbs[row.id] || row.blob).then(function (s) { rowSigs[i] = s; }, function () { rowSigs[i] = null; });
+        });
+      });
+      pdfImages.forEach(function (im, i) {
+        chain = chain.then(function () {
+          progress('מנתח PDF ' + (i + 1) + '/' + pdfImages.length);
+          return imageSignature(im.slice).then(function (s) { pdfSigs[i] = s; }, function () { pdfSigs[i] = null; });
+        });
+      });
+      return chain;
+    }).then(function () {
+      var pairs = [];
+      for (var p = 0; p < pdfSigs.length; p++) {
+        if (!pdfSigs[p]) continue;
+        for (var q = 0; q < rowSigs.length; q++) {
+          if (!rowSigs[q]) continue;
+          pairs.push({ p: p, q: q, d: sigDistance(pdfSigs[p], rowSigs[q]) });
+        }
+      }
+      pairs.sort(function (a, b) { return a.d - b.d; });
+      var usedP = {}, usedQ = {}, matches = [];
+      pairs.forEach(function (pr) {
+        if (pr.d > 22 || usedP[pr.p] || usedQ[pr.q]) return;
+        usedP[pr.p] = true;
+        usedQ[pr.q] = true;
+        matches.push(pr);
+      });
+      btn.disabled = false;
+      progress(label);
+      var msg = 'ב-PDF יש ' + pdfImages.length + ' תמונות, באלבום ' + rows.length + '.\nנמצאו ' + matches.length + ' התאמות.\nלהחליף את ' + matches.length + ' התמונות באלבום בגרסאות מה-PDF? אי אפשר לבטל.';
+      if (!matches.length || !confirm(msg)) { done(); if (!matches.length) toast('לא נמצאו תמונות מתאימות ב-PDF'); return; }
+      btn.disabled = true;
+      var chain = Promise.resolve(), replaced = 0;
+      matches.forEach(function (m, i) {
+        chain = chain.then(function () {
+          progress('מחליף ' + (i + 1) + '/' + matches.length);
+          var im = pdfImages[m.p], row = rows[m.q];
+          // copy the bytes into a standalone Blob so nothing in the album points back at the picked file
+          return im.slice.arrayBuffer().then(function (buf) {
+            var copy = new Blob([buf], { type: 'image/jpeg' });
+            return dbReplaceBlob(row.id, copy, rectsForStripWidth(im.w)).then(function (ok) {
+              if (!ok) return;
+              replaced++;
+              return thumbFromBlob(copy).then(function (t) { return dbPutThumb(row.id, t); }).catch(function () {});
+            });
+          });
+        });
+      });
+      return chain.then(function () { done(); toast('הוחלפו ' + replaced + ' תמונות באלבום'); });
+    }).catch(function () {
+      done();
+      toast('לא הצלחתי לקרוא את ה-PDF - צריך את הקובץ שנוצר מהאפליקציה');
+    });
+  }
+  $('import-pdf-btn').addEventListener('click', function () { $('import-pdf-input').click(); });
+  $('import-pdf-input').addEventListener('change', function () {
+    var f = this.files && this.files[0];
+    this.value = '';
+    if (f) importPdfReplace(f);
+  });
+
   function exportEventPdf(eventName, onDone) {
     dbAllForEvent(eventName).then(function (rows) {
       exportRowsPdf(rows, 'memories4u-event-photos.pdf', onDone);
