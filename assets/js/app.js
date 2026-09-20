@@ -166,7 +166,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260920u';
+  var APP_VERSION = '20260920w';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -2794,6 +2794,7 @@
     // stay admin-only, reached only via ⚙️ settings, never for a guest.
     var isGuestGallery = galleryReturnScreen === 'screen-result';
     $('gallery-admin-toolbar').style.display = isGuestGallery ? 'none' : '';
+    $('screen-gallery').classList.toggle('guest-gallery', isGuestGallery);
     $('export-all-group').style.display = isGuestGallery ? 'none' : '';
     showScreen('screen-gallery');
     renderGalleryGrid();
@@ -2858,7 +2859,7 @@
           }
           item.addEventListener('click', function () {
             if (gallerySelectMode) {
-              if (dragSelJustEnded) return;
+              if (galleryDrag.justEnded()) return;
               // Toggled in place - rebuilding the whole grid on every tap
               // re-created every tile and made selecting sluggish.
               setItemSelected(item, !gallerySelectedIds[row.id]);
@@ -2907,77 +2908,88 @@
   // already selected, deselect) everything passed over, including tiles the
   // finger skipped over; near the top/bottom edge the grid scrolls by itself.
   // A mostly-vertical drag is left to normal scrolling.
-  var dragSel = null;
-  var dragSelJustEnded = false;
-  var dragScrollTimer = null;
-  var galleryGridEl = $('gallery-grid');
-  function tileAtPoint(x, y) {
-    var el = document.elementFromPoint(x, y);
-    return el && el.closest ? el.closest('#gallery-grid .gallery-item') : null;
-  }
-  function applyDragRange(a, b, on) {
-    var items = Array.prototype.slice.call(galleryGridEl.querySelectorAll('.gallery-item'));
-    var ia = items.indexOf(a), ib = items.indexOf(b);
-    if (ia < 0 || ib < 0) return;
-    for (var k = Math.min(ia, ib); k <= Math.max(ia, ib); k++) setItemSelected(items[k], on);
-  }
-  function dragSelectUpdate() {
-    var tile = tileAtPoint(dragSel.ex, dragSel.ey);
-    if (tile && tile !== dragSel.last) {
-      applyDragRange(dragSel.last, tile, dragSel.mode);
-      dragSel.last = tile;
-      updateSelectionButtons();
+  // Shared by the gallery and the recycle bin: cfg supplies how "selected"
+  // is read/written for that grid's tiles.
+  function makeDragSelect(gridEl, cfg) {
+    var dragSel = null;
+    var justEnded = false;
+    function tileAtPoint(x, y) {
+      var el = document.elementFromPoint(x, y);
+      var tile = el && el.closest ? el.closest('.gallery-item') : null;
+      return tile && gridEl.contains(tile) ? tile : null;
     }
-  }
-  function dragScrollTick() {
-    if (!dragSel || !dragSel.active) { dragScrollTimer = null; return; }
-    var rect = galleryGridEl.getBoundingClientRect();
-    var edge = 70, speed = 0;
-    if (dragSel.ey < rect.top + edge) speed = -Math.ceil((rect.top + edge - dragSel.ey) / 6);
-    else if (dragSel.ey > rect.bottom - edge) speed = Math.ceil((dragSel.ey - (rect.bottom - edge)) / 6);
-    if (speed) {
-      galleryGridEl.scrollTop += speed;
-      dragSelectUpdate();
+    function applyRange(a, b, on) {
+      var items = Array.prototype.slice.call(gridEl.querySelectorAll('.gallery-item'));
+      var ia = items.indexOf(a), ib = items.indexOf(b);
+      if (ia < 0 || ib < 0) return;
+      for (var k = Math.min(ia, ib); k <= Math.max(ia, ib); k++) cfg.setSelected(items[k], on);
     }
-    dragScrollTimer = requestAnimationFrame(dragScrollTick);
+    function update() {
+      var tile = tileAtPoint(dragSel.ex, dragSel.ey);
+      if (tile && tile !== dragSel.last) {
+        applyRange(dragSel.last, tile, dragSel.mode);
+        dragSel.last = tile;
+        cfg.onChange();
+      }
+    }
+    function scrollTick() {
+      if (!dragSel || !dragSel.active) return;
+      var rect = gridEl.getBoundingClientRect();
+      var edge = 70, speed = 0;
+      if (dragSel.ey < rect.top + edge) speed = -Math.ceil((rect.top + edge - dragSel.ey) / 6);
+      else if (dragSel.ey > rect.bottom - edge) speed = Math.ceil((dragSel.ey - (rect.bottom - edge)) / 6);
+      if (speed) {
+        gridEl.scrollTop += speed;
+        update();
+      }
+      requestAnimationFrame(scrollTick);
+    }
+    gridEl.addEventListener('pointerdown', function (e) {
+      if (!cfg.active()) return;
+      if (cfg.ignore && e.target.closest && e.target.closest(cfg.ignore)) return;
+      var tile = e.target.closest ? e.target.closest('.gallery-item') : null;
+      if (!tile) return;
+      dragSel = { id: e.pointerId, x: e.clientX, y: e.clientY, ex: e.clientX, ey: e.clientY, start: tile, last: tile, active: false, mode: true };
+    });
+    gridEl.addEventListener('pointermove', function (e) {
+      if (!dragSel || e.pointerId !== dragSel.id) return;
+      dragSel.ex = e.clientX;
+      dragSel.ey = e.clientY;
+      if (!dragSel.active) {
+        var dx = e.clientX - dragSel.x, dy = e.clientY - dragSel.y;
+        var horizontal = Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy);
+        var mouseDrag = e.pointerType === 'mouse' && Math.max(Math.abs(dx), Math.abs(dy)) > 8;
+        if (!horizontal && !mouseDrag) return;
+        dragSel.active = true;
+        dragSel.mode = !cfg.isSelected(dragSel.start);
+        cfg.setSelected(dragSel.start, dragSel.mode);
+        cfg.onChange();
+        try { gridEl.setPointerCapture(e.pointerId); } catch (err) {}
+        requestAnimationFrame(scrollTick);
+      }
+      e.preventDefault();
+      update();
+    });
+    function end() {
+      if (dragSel && dragSel.active) {
+        justEnded = true;
+        setTimeout(function () { justEnded = false; }, 60);
+      }
+      dragSel = null;
+    }
+    gridEl.addEventListener('pointerup', end);
+    gridEl.addEventListener('pointercancel', end);
+    gridEl.addEventListener('touchmove', function (e) {
+      if (dragSel && dragSel.active) e.preventDefault();
+    }, { passive: false });
+    return { justEnded: function () { return justEnded; } };
   }
-  galleryGridEl.addEventListener('pointerdown', function (e) {
-    if (!gallerySelectMode) return;
-    var tile = e.target.closest ? e.target.closest('.gallery-item') : null;
-    if (!tile) return;
-    dragSel = { id: e.pointerId, x: e.clientX, y: e.clientY, ex: e.clientX, ey: e.clientY, start: tile, last: tile, active: false, mode: true };
+  var galleryDrag = makeDragSelect($('gallery-grid'), {
+    active: function () { return gallerySelectMode; },
+    isSelected: function (item) { return !!gallerySelectedIds[item._row.id]; },
+    setSelected: setItemSelected,
+    onChange: updateSelectionButtons
   });
-  galleryGridEl.addEventListener('pointermove', function (e) {
-    if (!dragSel || e.pointerId !== dragSel.id) return;
-    dragSel.ex = e.clientX;
-    dragSel.ey = e.clientY;
-    if (!dragSel.active) {
-      var dx = e.clientX - dragSel.x, dy = e.clientY - dragSel.y;
-      var horizontal = Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy);
-      var mouseDrag = e.pointerType === 'mouse' && Math.max(Math.abs(dx), Math.abs(dy)) > 8;
-      if (!horizontal && !mouseDrag) return;
-      dragSel.active = true;
-      dragSel.mode = !gallerySelectedIds[dragSel.start._row.id];
-      setItemSelected(dragSel.start, dragSel.mode);
-      updateSelectionButtons();
-      try { galleryGridEl.setPointerCapture(e.pointerId); } catch (err) {}
-      dragScrollTimer = requestAnimationFrame(dragScrollTick);
-    }
-    e.preventDefault();
-    dragSelectUpdate();
-  });
-  function endDragSelect() {
-    if (dragSel && dragSel.active) {
-      dragSelJustEnded = true;
-      setTimeout(function () { dragSelJustEnded = false; }, 60);
-    }
-    dragSel = null;
-  }
-  galleryGridEl.addEventListener('pointerup', endDragSelect);
-  galleryGridEl.addEventListener('pointercancel', endDragSelect);
-  galleryGridEl.addEventListener('touchmove', function (e) {
-    if (dragSel && dragSel.active) e.preventDefault();
-  }, { passive: false });
 
   // Older photos with no thumbnail yet get one made in the background, one
   // at a time (decoding a full-size photo is heavy), and saved for good.
@@ -3074,6 +3086,61 @@
     $('trash-select-all-btn').textContent = trashRowsNow.length && n === trashRowsNow.length ? 'בטל הכל' : 'בחר הכל';
     $('trash-count').textContent = n ? ('נבחרו ' + n + ' מתוך ' + trashRowsNow.length) : trashCountLabel();
   }
+  function setTrashItemSelected(item, on) {
+    var row = item._row;
+    if (!row) return;
+    if (on) trashSelected[row.id] = true; else delete trashSelected[row.id];
+    item.classList.toggle('selected', on);
+    if (item._check) item._check.textContent = on ? '✓' : '';
+  }
+  var trashDrag = makeDragSelect($('trash-grid'), {
+    active: function () { return true; },
+    ignore: '.trash-view-btn',
+    isSelected: function (item) { return !!trashSelected[item._row.id]; },
+    setSelected: setTrashItemSelected,
+    onChange: function () { updateTrashButtons(); }
+  });
+  // Full-size look at one bin photo, so it can be checked before restoring
+  // or deleting it for good.
+  var trashViewIndex = -1;
+  var trashViewUrl = null;
+  function showTrashViewer() {
+    var row = trashRowsNow[trashViewIndex];
+    if (!row) { closeTrashViewer(); return; }
+    if (trashViewUrl) URL.revokeObjectURL(trashViewUrl);
+    trashViewUrl = URL.createObjectURL(row.blob);
+    $('trash-viewer-img').src = trashViewUrl;
+    $('trash-viewer-event').textContent = (currentEventNameOf(row) || 'ללא שם') + '  (' + (trashViewIndex + 1) + ' מתוך ' + trashRowsNow.length + ')';
+    $('trash-viewer-prev').style.visibility = trashViewIndex > 0 ? 'visible' : 'hidden';
+    $('trash-viewer-next').style.visibility = trashViewIndex < trashRowsNow.length - 1 ? 'visible' : 'hidden';
+  }
+  function openTrashViewer(index) {
+    if (index < 0) return;
+    trashViewIndex = index;
+    showTrashViewer();
+    $('trash-viewer').classList.add('active');
+  }
+  function closeTrashViewer() {
+    $('trash-viewer').classList.remove('active');
+    $('trash-viewer-img').removeAttribute('src');
+    if (trashViewUrl) { URL.revokeObjectURL(trashViewUrl); trashViewUrl = null; }
+  }
+  $('trash-viewer-close').addEventListener('click', closeTrashViewer);
+  $('trash-viewer-prev').addEventListener('click', function () { if (trashViewIndex > 0) { trashViewIndex--; showTrashViewer(); } });
+  $('trash-viewer-next').addEventListener('click', function () { if (trashViewIndex < trashRowsNow.length - 1) { trashViewIndex++; showTrashViewer(); } });
+  $('trash-viewer-restore').addEventListener('click', function () {
+    var row = trashRowsNow[trashViewIndex];
+    if (!row) return;
+    closeTrashViewer();
+    dbTrashRemove([row.id]).then(function () { toast('התמונה שוחזרה לאלבום שלה'); renderTrash(); });
+  });
+  $('trash-viewer-delete').addEventListener('click', function () {
+    var row = trashRowsNow[trashViewIndex];
+    if (!row) return;
+    if (!confirm('למחוק את התמונה לצמיתות? אי אפשר לשחזר אותה אחרי זה.')) return;
+    closeTrashViewer();
+    deleteForever([row.id]).then(function () { toast('נמחקה לצמיתות'); renderTrash(); });
+  });
   function renderTrash() {
     var grid = $('trash-grid');
     trashSelected = {};
@@ -3110,11 +3177,20 @@
         label.className = 'trash-event';
         label.textContent = currentEventNameOf(row) || 'ללא שם';
         item.appendChild(label);
+        item._row = row;
+        item._check = check;
+        var viewBtn = document.createElement('button');
+        viewBtn.className = 'trash-view-btn';
+        viewBtn.setAttribute('aria-label', 'הצגת התמונה');
+        viewBtn.textContent = '🔍';
+        viewBtn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          openTrashViewer(trashRowsNow.indexOf(row));
+        });
+        item.appendChild(viewBtn);
         item.addEventListener('click', function () {
-          var on = !trashSelected[row.id];
-          if (on) trashSelected[row.id] = true; else delete trashSelected[row.id];
-          item.classList.toggle('selected', on);
-          check.textContent = on ? '✓' : '';
+          if (trashDrag.justEnded()) return;
+          setTrashItemSelected(item, !trashSelected[row.id]);
           updateTrashButtons();
         });
         grid.appendChild(item);
@@ -3135,13 +3211,8 @@
   $('trash-back-btn').addEventListener('click', function () { openGallery(); });
   $('trash-select-all-btn').addEventListener('click', function () {
     var all = trashRowsNow.length && Object.keys(trashSelected).length === trashRowsNow.length;
-    Array.prototype.forEach.call($('trash-grid').querySelectorAll('.gallery-item'), function (item, i) {
-      var row = trashRowsNow[i];
-      if (!row) return;
-      if (all) delete trashSelected[row.id]; else trashSelected[row.id] = true;
-      item.classList.toggle('selected', !all);
-      var c = item.querySelector('.gallery-check');
-      if (c) c.textContent = all ? '' : '✓';
+    Array.prototype.forEach.call($('trash-grid').querySelectorAll('.gallery-item'), function (item) {
+      setTrashItemSelected(item, !all);
     });
     updateTrashButtons();
   });

@@ -22,7 +22,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="assets/css/style.css?v=20260920u">
+<link rel="stylesheet" href="assets/css/style.css?v=20260920w">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Dancing+Script:wght@600&family=Playfair+Display:ital@1&family=Amatic+SC:wght@700&family=Caveat:wght@600&family=Cormorant+Garamond:ital@1&family=Suez+One&family=Frank+Ruhl+Libre:ital,wght@0,500;1,500&family=Bellefair&family=Miriam+Libre:wght@700&family=Secular+One&family=Heebo:wght@700&family=David+Libre:wght@700&family=Alex+Brush&family=Allura&family=Parisienne&family=Tangerine:wght@700&family=Pinyon+Script&family=Mrs+Saint+Delafield&family=Sacramento&family=Yellowtail&display=swap">
 <style>
   html, body {
@@ -423,6 +423,8 @@
     text-shadow: 0 1px 6px rgba(0,0,0,.9), 0 1px 2px #000;
   }
   .gallery-title-wrap { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  #screen-gallery.guest-gallery .topbar { position: relative; }
+  #screen-gallery.guest-gallery .gallery-title-wrap { position: absolute; left: 50%; transform: translateX(-50%); top: calc(10px + env(safe-area-inset-top)); }
   .gallery-event-name { font-size: 15px; font-weight: 700; color: var(--color-text, #f5f0e6); text-shadow: 0 1px 4px rgba(0,0,0,.9); max-width: 60vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .gallery-event-name:empty { display: none; }
   .gallery-count-label {
@@ -440,6 +442,7 @@
     font-size: 18px;
     cursor: pointer;
   }
+  .trash-viewer .icon-btn { width: 44px; height: 44px; flex-shrink: 0; border-radius: 50%; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-gold); display: flex; align-items: center; justify-content: center; font-size: 22px; cursor: pointer; }
   .icon-btn-spacer { width: 40px; height: 40px; flex-shrink: 0; }
   .topbar-actions { display: flex; align-items: flex-start; gap: 8px; }
   .topbar-actions .icon-btn:disabled { opacity: .35; cursor: default; }
@@ -778,6 +781,7 @@
     overflow-y: auto;
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    grid-auto-rows: max-content;
     gap: 8px;
     padding: 10px;
   }
@@ -802,6 +806,24 @@
   }
   /* In selection mode a horizontal drag across tiles selects them (like the
      Photos app) while a vertical drag still scrolls the grid. */
+  .trash-view-btn {
+    position: absolute; top: 6px; right: 6px;
+    width: 34px; height: 34px; border-radius: 50%;
+    background: rgba(12,12,14,.75); border: 1.5px solid var(--color-gold);
+    font-size: 16px; line-height: 1; padding: 0; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .trash-viewer {
+    position: fixed; inset: 0; z-index: 40; background: #000;
+    display: none; flex-direction: column;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .trash-viewer.active { display: flex; }
+  .trash-viewer-top { display: flex; align-items: center; justify-content: space-between; padding: calc(10px + env(safe-area-inset-top)) 14px 10px; }
+  .trash-viewer-event { color: var(--color-text); font-size: 14px; text-align: center; }
+  .trash-viewer-body { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 10px; }
+  .trash-viewer-body img { flex: 1; min-width: 0; max-height: 100%; object-fit: contain; }
+  .trash-viewer-actions { display: flex; gap: 10px; justify-content: center; padding: 12px 14px 16px; }
   .gallery-grid.selecting .gallery-item { touch-action: pan-y; }
   .gallery-grid.selecting img { pointer-events: none; -webkit-touch-callout: none; }
   .gallery-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -1468,7 +1490,23 @@
     <button class="btn btn-ghost" id="trash-delete-btn">🗑️ מחק לצמיתות (0)</button>
     <button class="btn btn-ghost" id="trash-empty-btn">רוקן סל</button>
   </div>
-  <div id="trash-grid" class="gallery-grid"></div>
+  <div id="trash-grid" class="gallery-grid selecting"></div>
+  <div id="trash-viewer" class="trash-viewer">
+    <div class="trash-viewer-top">
+      <button class="icon-btn" id="trash-viewer-close" aria-label="סגירה">✕</button>
+      <div id="trash-viewer-event" class="trash-viewer-event"></div>
+      <div class="icon-btn-spacer"></div>
+    </div>
+    <div class="trash-viewer-body">
+      <button class="icon-btn" id="trash-viewer-prev" aria-label="הקודמת">›</button>
+      <img id="trash-viewer-img" alt="">
+      <button class="icon-btn" id="trash-viewer-next" aria-label="הבאה">‹</button>
+    </div>
+    <div class="trash-viewer-actions">
+      <button class="btn" id="trash-viewer-restore">♻️ שחזר</button>
+      <button class="btn btn-ghost" id="trash-viewer-delete">🗑️ מחק לצמיתות</button>
+    </div>
+  </div>
 </div>
 
 <!-- ============ DESIGN EDITOR ============ -->
@@ -1570,6 +1608,6 @@
 
 <script src="assets/js/qrcode-generator.js"></script>
 <script src="assets/js/gifenc.js"></script>
-<script src="assets/js/app.js?v=20260920u"></script>
+<script src="assets/js/app.js?v=20260920w"></script>
 </body>
 </html>
