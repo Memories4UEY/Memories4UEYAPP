@@ -166,7 +166,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260920p';
+  var APP_VERSION = '20260920s';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -247,9 +247,9 @@
   // loaded" default), so they stay visible together as long as no named
   // event has claimed that bucket.
   function dbAllForEvent(eventName) {
-    return dbAll().then(function (rows) {
+    return Promise.all([dbAll(), dbTrashMap()]).then(function (r) {
       var name = eventName || '';
-      return rows.filter(function (row) { return (row.eventName || '') === name; });
+      return r[0].filter(function (row) { return !r[1][row.id] && (row.eventName || '') === name; });
     });
   }
   function dbAllForActiveEvent() { return dbAllForEvent(getActiveEventName()); }
@@ -264,6 +264,68 @@
         req.onsuccess = function () { resolve(); };
         req.onerror = function () { reject(req.error); };
       });
+    });
+  }
+
+  // ---------- Recycle bin ----------
+  // Deleting a photo only flags it as deleted (in its own small database, so
+  // the photo itself is never rewritten or touched): it disappears from its
+  // album and exports, and shows up in the recycle bin, where it can be put
+  // back in the same album (its event is never changed) or deleted for good.
+  var TRASH_DB_NAME = 'm4u-photobooth-trash';
+  var TRASH_STORE = 'trash';
+  var trashDbPromise = new Promise(function (resolve) {
+    try {
+      var q = indexedDB.open(TRASH_DB_NAME, 1);
+      q.onupgradeneeded = function () { q.result.createObjectStore(TRASH_STORE, { keyPath: 'id' }); };
+      q.onsuccess = function () { resolve(q.result); };
+      q.onerror = function () { resolve(null); };
+      q.onblocked = function () { resolve(null); };
+    } catch (e) { resolve(null); }
+  });
+  function dbTrashMap() {
+    return trashDbPromise.then(function (db) {
+      return new Promise(function (resolve) {
+        var map = {};
+        if (!db) { resolve(map); return; }
+        var req = db.transaction(TRASH_STORE, 'readonly').objectStore(TRASH_STORE).getAll();
+        req.onsuccess = function () { req.result.forEach(function (t) { map[t.id] = t.deletedAt; }); resolve(map); };
+        req.onerror = function () { resolve(map); };
+      });
+    });
+  }
+  function moveToTrash(ids) {
+    return trashDbPromise.then(function (db) {
+      if (!db) return Promise.all(ids.map(function (id) { return dbDelete(id); }));
+      return new Promise(function (resolve) {
+        var tx = db.transaction(TRASH_STORE, 'readwrite');
+        var st = tx.objectStore(TRASH_STORE);
+        var now = Date.now();
+        ids.forEach(function (id) { st.put({ id: id, deletedAt: now }); });
+        tx.oncomplete = function () { resolve(); };
+        tx.onerror = function () { resolve(); };
+      });
+    });
+  }
+  function dbTrashRemove(ids) {
+    return trashDbPromise.then(function (db) {
+      if (!db) return;
+      return new Promise(function (resolve) {
+        var tx = db.transaction(TRASH_STORE, 'readwrite');
+        var st = tx.objectStore(TRASH_STORE);
+        ids.forEach(function (id) { st.delete(id); });
+        tx.oncomplete = function () { resolve(); };
+        tx.onerror = function () { resolve(); };
+      });
+    });
+  }
+  function trashedRows() {
+    return Promise.all([dbAll(), dbTrashMap()]).then(function (r) {
+      var t = r[1];
+      return r[0].filter(function (row) { return t[row.id]; }).map(function (row) {
+        row._deletedAt = t[row.id];
+        return row;
+      }).sort(function (a, b) { return b._deletedAt - a._deletedAt; });
     });
   }
 
@@ -2193,8 +2255,8 @@
 
   $('btn-delete').addEventListener('click', function () {
     if (currentPhotoId == null) return;
-    dbDelete(currentPhotoId).then(function () {
-      toast('התמונה נמחקה');
+    moveToTrash([currentPhotoId]).then(function () {
+      toast('התמונה הועברה לסל המחזור');
       openGallery();
     });
   });
@@ -2724,6 +2786,7 @@
     var grid = $('gallery-grid');
     grid.innerHTML = '';
     grid.classList.toggle('selecting', gallerySelectMode);
+    refreshTrashButtonLabel();
     $('gallery-selection-toolbar').style.display = gallerySelectMode ? 'flex' : 'none';
     $('gallery-select-btn').textContent = gallerySelectMode ? '✕ בטל בחירה' : '☑ בחירה';
     var isGuestGallery = galleryReturnScreen === 'screen-result';
@@ -2739,7 +2802,6 @@
         return;
       }
       updateSelectionButtons();
-      checkGalleryIntegrity(rows, isGuestGallery);
       dbAllThumbs().then(function (thumbs) {
         if (myGen !== galleryRenderGen) return;
         galleryThumbUrls.forEach(function (u) { URL.revokeObjectURL(u); });
@@ -2785,29 +2847,6 @@
       });
     });
   }
-  // Admin gallery only: quietly checks that each photo's own file can still be
-  // read and starts with a JPEG signature; if some can't (an unreadable or
-  // damaged saved file), a single button offers the one-tap repair from the PDF
-  // that was exported earlier (the same PDF import as in settings).
-  function checkGalleryIntegrity(rows, isGuestGallery) {
-    var btn = $('gallery-repair-btn');
-    btn.style.display = 'none';
-    if (isGuestGallery) return;
-    Promise.all(rows.map(function (row) {
-      return row.blob.slice(0, 2).arrayBuffer().then(function (buf) {
-        var b = new Uint8Array(buf);
-        return b[0] === 0xFF && b[1] === 0xD8;
-      }, function () { return false; });
-    })).then(function (oks) {
-      var broken = oks.filter(function (ok) { return !ok; }).length;
-      if (!broken) return;
-      btn.textContent = '⚠ ' + broken + ' תמונות פגומות - לחץ לתיקון מהקובץ PDF';
-      btn.style.display = '';
-    });
-  }
-  $('gallery-repair-btn').addEventListener('click', function () {
-    $('import-pdf-input').click();
-  });
   var galleryThumbUrls = [];
   function updateSelectionButtons() {
     var selectedCount = Object.keys(gallerySelectedIds).length;
@@ -2969,9 +3008,9 @@
   $('gallery-delete-all-btn').addEventListener('click', function () {
     dbAllForActiveEvent().then(function (rows) {
       if (!rows.length) { toast('אין תמונות למחוק'); return; }
-      if (!confirm('למחוק את כל ' + rows.length + ' התמונות של האירוע הזה? לא ניתן לבטל את זה.')) return;
-      Promise.all(rows.map(function (row) { return dbDelete(row.id); })).then(function () {
-        toast('כל התמונות נמחקו');
+      if (!confirm('להעביר את כל ' + rows.length + ' התמונות של האירוע הזה לסל המחזור? אפשר לשחזר אותן משם.')) return;
+      moveToTrash(rows.map(function (row) { return row.id; })).then(function () {
+        toast('כל התמונות הועברו לסל המחזור');
         renderGalleryGrid();
       });
     });
@@ -2979,10 +3018,10 @@
   $('gallery-delete-selected-btn').addEventListener('click', function () {
     var ids = Object.keys(gallerySelectedIds);
     if (!ids.length) { toast('לא סימנתם תמונות'); return; }
-    if (!confirm('למחוק ' + ids.length + ' תמונות שסומנו? לא ניתן לבטל את זה.')) return;
-    Promise.all(ids.map(function (id) { return dbDelete(Number(id)); })).then(function () {
+    if (!confirm('להעביר ' + ids.length + ' תמונות שסומנו לסל המחזור? אפשר לשחזר אותן משם.')) return;
+    moveToTrash(ids.map(function (id) { return Number(id); })).then(function () {
       gallerySelectedIds = {};
-      toast('התמונות שסומנו נמחקו');
+      toast('התמונות שסומנו הועברו לסל המחזור');
       renderGalleryGrid();
     });
   });
@@ -2993,6 +3032,112 @@
     var chosen = galleryRows.filter(function (row) { return gallerySelectedIds[row.id]; });
     if (!chosen.length) { toast('לא סימנתם תמונות'); return; }
     exportRowsPdf(chosen, 'memories4u-selected-photos.pdf');
+  });
+
+  // ---------- Recycle bin screen ----------
+  var trashSelected = {};
+  var trashRowsNow = [];
+  var trashThumbUrls = [];
+  function trashCountLabel() { return trashRowsNow.length + ' תמונות'; }
+  function updateTrashButtons() {
+    var n = Object.keys(trashSelected).length;
+    $('trash-restore-btn').textContent = '♻️ שחזר (' + n + ')';
+    $('trash-delete-btn').textContent = '🗑️ מחק לצמיתות (' + n + ')';
+    $('trash-select-all-btn').textContent = trashRowsNow.length && n === trashRowsNow.length ? 'בטל הכל' : 'בחר הכל';
+    $('trash-count').textContent = n ? ('נבחרו ' + n + ' מתוך ' + trashRowsNow.length) : trashCountLabel();
+  }
+  function renderTrash() {
+    var grid = $('trash-grid');
+    trashSelected = {};
+    grid.innerHTML = '';
+    Promise.all([trashedRows(), dbAllThumbs()]).then(function (r) {
+      trashRowsNow = r[0];
+      var thumbs = r[1];
+      trashThumbUrls.forEach(function (u) { URL.revokeObjectURL(u); });
+      trashThumbUrls = [];
+      updateTrashButtons();
+      if (!trashRowsNow.length) {
+        var empty = document.createElement('div');
+        empty.className = 'gallery-empty';
+        empty.textContent = 'סל המחזור ריק';
+        grid.appendChild(empty);
+        return;
+      }
+      trashRowsNow.forEach(function (row) {
+        var item = document.createElement('div');
+        item.className = 'gallery-item';
+        var img = document.createElement('img');
+        if (thumbs[row.id]) {
+          var url = URL.createObjectURL(thumbs[row.id]);
+          trashThumbUrls.push(url);
+          img.src = url;
+        } else {
+          enqueueThumb(row, img);
+        }
+        item.appendChild(img);
+        var check = document.createElement('div');
+        check.className = 'gallery-check';
+        item.appendChild(check);
+        var label = document.createElement('div');
+        label.className = 'trash-event';
+        label.textContent = row.eventName || 'ללא שם';
+        item.appendChild(label);
+        item.addEventListener('click', function () {
+          var on = !trashSelected[row.id];
+          if (on) trashSelected[row.id] = true; else delete trashSelected[row.id];
+          item.classList.toggle('selected', on);
+          check.textContent = on ? '✓' : '';
+          updateTrashButtons();
+        });
+        grid.appendChild(item);
+      });
+    });
+  }
+  function openTrash() {
+    showScreen('screen-trash');
+    renderTrash();
+  }
+  function refreshTrashButtonLabel() {
+    dbTrashMap().then(function (m) {
+      var n = Object.keys(m).length;
+      $('gallery-trash-btn').textContent = '♻️ סל מחזור' + (n ? ' (' + n + ')' : '');
+    });
+  }
+  $('gallery-trash-btn').addEventListener('click', openTrash);
+  $('trash-back-btn').addEventListener('click', function () { openGallery(); });
+  $('trash-select-all-btn').addEventListener('click', function () {
+    var all = trashRowsNow.length && Object.keys(trashSelected).length === trashRowsNow.length;
+    Array.prototype.forEach.call($('trash-grid').querySelectorAll('.gallery-item'), function (item, i) {
+      var row = trashRowsNow[i];
+      if (!row) return;
+      if (all) delete trashSelected[row.id]; else trashSelected[row.id] = true;
+      item.classList.toggle('selected', !all);
+      var c = item.querySelector('.gallery-check');
+      if (c) c.textContent = all ? '' : '✓';
+    });
+    updateTrashButtons();
+  });
+  $('trash-restore-btn').addEventListener('click', function () {
+    var ids = Object.keys(trashSelected).map(Number);
+    if (!ids.length) { toast('לא סימנתם תמונות'); return; }
+    dbTrashRemove(ids).then(function () {
+      toast(ids.length + ' תמונות שוחזרו לאלבום שלהן');
+      renderTrash();
+    });
+  });
+  function deleteForever(ids) {
+    return Promise.all(ids.map(function (id) { return dbDelete(id); })).then(function () { return dbTrashRemove(ids); });
+  }
+  $('trash-delete-btn').addEventListener('click', function () {
+    var ids = Object.keys(trashSelected).map(Number);
+    if (!ids.length) { toast('לא סימנתם תמונות'); return; }
+    if (!confirm('למחוק ' + ids.length + ' תמונות לצמיתות? אי אפשר לשחזר אותן אחרי זה.')) return;
+    deleteForever(ids).then(function () { toast('נמחקו לצמיתות'); renderTrash(); });
+  });
+  $('trash-empty-btn').addEventListener('click', function () {
+    if (!trashRowsNow.length) { toast('סל המחזור כבר ריק'); return; }
+    if (!confirm('לרוקן את סל המחזור? ' + trashRowsNow.length + ' תמונות יימחקו לצמיתות ולא יהיה אפשר לשחזר אותן.')) return;
+    deleteForever(trashRowsNow.map(function (r) { return r.id; })).then(function () { toast('סל המחזור רוקן'); renderTrash(); });
   });
 
   // ---------- Design editor ----------
@@ -3922,209 +4067,29 @@
       if (onDone) onDone();
     }).catch(function () { toast('הייצוא נכשל - נסו שוב'); });
   }
-  // ---------- Replace the album's photos with the ones inside a PDF ----------
-  // Reads the JPEG pages out of a PDF made by this app's own PDF export, matches
-  // each to the album photo it came from by comparing tiny grayscale
-  // fingerprints (the album's saved thumbnails when there are any, so it also
-  // works when a photo's own file can't be read), and swaps each photo's image
-  // in place - same album slot, date and order. Each image is copied into its
-  // own standalone bytes before saving, so the album never keeps a reference to
-  // the (temporary) picked file.
-  function readSlice(file, start, end) {
-    return file.slice(start, end).arrayBuffer();
-  }
-  function readPdfJpegs(file) {
-    var td = new TextDecoder('latin1');
-    return readSlice(file, Math.max(0, file.size - 2048), file.size).then(function (buf) {
-      var m = td.decode(buf).match(/startxref\s+(\d+)/);
-      if (!m) throw new Error('not a pdf');
-      return readSlice(file, parseInt(m[1], 10), file.size);
-    }).then(function (buf) {
-      var text = td.decode(buf);
-      var head = text.match(/^xref\s+0\s+(\d+)\s/);
-      if (!head) throw new Error('unknown pdf');
-      var total = parseInt(head[1], 10);
-      var lines = text.slice(head[0].length).split('\n');
-      var offsets = [];
-      for (var n = 1; n < total; n++) offsets[n] = parseInt(lines[n].slice(0, 10), 10);
-      var images = [];
-      var chain = Promise.resolve();
-      for (var num = 1; num < total; num++) {
-        (function (objNum) {
-          chain = chain.then(function () {
-            return readSlice(file, offsets[objNum], offsets[objNum] + 400).then(function (b) {
-              var t = td.decode(b);
-              var s = t.indexOf('stream\n'), cut = t.indexOf('endobj');
-              if (s < 0 || (cut >= 0 && cut < s)) return;
-              var dict = t.slice(0, s);
-              if (dict.indexOf('/Subtype /Image') < 0 || dict.indexOf('/DCTDecode') < 0) return;
-              var len = dict.match(/\/Length (\d+)/);
-              var wm = dict.match(/\/Width (\d+)/);
-              if (!len) return;
-              var start = offsets[objNum] + s + 7;
-              images.push({ slice: file.slice(start, start + parseInt(len[1], 10), 'image/jpeg'), w: wm ? +wm[1] : 0 });
-            });
-          });
-        })(num);
-      }
-      return chain.then(function () { return images; });
-    });
-  }
-  function imageSignature(blob) {
-    return new Promise(function (resolve, reject) {
-      var img = new Image();
-      var url = URL.createObjectURL(blob);
-      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('decode')); };
-      img.onload = function () {
-        var src = img, sw = img.naturalWidth, sh = img.naturalHeight;
-        while (sw > 96 || sh > 288) {
-          var nw = Math.max(24, Math.round(sw / 2)), nh = Math.max(72, Math.round(sh / 2));
-          var c = document.createElement('canvas');
-          c.width = nw; c.height = nh;
-          var cx = c.getContext('2d');
-          cx.imageSmoothingQuality = 'high';
-          cx.drawImage(src, 0, 0, nw, nh);
-          src = c; sw = nw; sh = nh;
-        }
-        var f = document.createElement('canvas');
-        f.width = 24; f.height = 72;
-        var fx = f.getContext('2d');
-        fx.imageSmoothingQuality = 'high';
-        fx.drawImage(src, 0, 0, 24, 72);
-        URL.revokeObjectURL(url);
-        var d = fx.getImageData(0, 0, 24, 72).data;
-        var sig = new Float32Array(24 * 72), mean = 0, i;
-        for (i = 0; i < sig.length; i++) { sig[i] = d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114; mean += sig[i]; }
-        mean /= sig.length;
-        for (i = 0; i < sig.length; i++) sig[i] -= mean;
-        resolve(sig);
-      };
-      img.src = url;
-    });
-  }
-  function sigDistance(a, b) {
-    var s = 0;
-    for (var i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]);
-    return s / a.length;
-  }
-  function dbReplaceBlob(id, blob, rects) {
-    return dbPromise.then(function (db) {
-      return new Promise(function (resolve, reject) {
-        var tx = db.transaction(STORE, 'readwrite');
-        var st = tx.objectStore(STORE);
-        var g = st.get(id);
-        var found = false;
-        g.onsuccess = function () {
-          var rec = g.result;
-          if (!rec) return;
-          found = true;
-          rec.blob = blob;
-          rec.photoRects = rects;
-          st.put(rec);
-        };
-        tx.oncomplete = function () { resolve(found); };
-        tx.onerror = function () { reject(tx.error); };
-      });
-    });
-  }
-  function rectsForStripWidth(w) {
-    var s = w / 600;
-    return [40, 550, 1060].map(function (y) { return { x: Math.round(36 * s), y: Math.round(y * s), w: Math.round(528 * s), h: Math.round(490 * s), r: 7 * s }; });
-  }
-  function importPdfReplace(file) {
-    var btn = $('import-pdf-btn');
-    var label = btn.textContent;
-    var repairBtn = $('gallery-repair-btn');
-    function progress(t) {
-      btn.textContent = t;
-      if (repairBtn.style.display !== 'none') { repairBtn.textContent = t; repairBtn.disabled = true; }
-    }
-    function done() {
-      btn.textContent = label;
-      btn.disabled = false;
-      repairBtn.disabled = false;
-      // re-draw the open gallery so repaired photos show and the warning re-checks itself
-      if ($('screen-gallery').classList.contains('active')) renderGalleryGrid();
-    }
-    if (!getActiveEventName()) { toast('צריך לטעון אירוע קודם'); return; }
-    btn.disabled = true;
-    progress('קורא את ה-PDF...');
-    var pdfImages, rows, thumbs, pdfSigs = [], rowSigs = [];
-    Promise.all([readPdfJpegs(file), dbAllForActiveEvent(), dbAllThumbs()]).then(function (r) {
-      pdfImages = r[0];
-      rows = r[1];
-      thumbs = r[2];
-      if (!pdfImages.length) throw new Error('empty');
-      var chain = Promise.resolve();
-      rows.forEach(function (row, i) {
-        chain = chain.then(function () {
-          progress('מנתח אלבום ' + (i + 1) + '/' + rows.length);
-          // the saved thumbnail first (small and always readable); the photo's own file as a fallback
-          return imageSignature(thumbs[row.id] || row.blob).then(function (s) { rowSigs[i] = s; }, function () { rowSigs[i] = null; });
-        });
-      });
-      pdfImages.forEach(function (im, i) {
-        chain = chain.then(function () {
-          progress('מנתח PDF ' + (i + 1) + '/' + pdfImages.length);
-          return imageSignature(im.slice).then(function (s) { pdfSigs[i] = s; }, function () { pdfSigs[i] = null; });
-        });
-      });
-      return chain;
-    }).then(function () {
-      var pairs = [];
-      for (var p = 0; p < pdfSigs.length; p++) {
-        if (!pdfSigs[p]) continue;
-        for (var q = 0; q < rowSigs.length; q++) {
-          if (!rowSigs[q]) continue;
-          pairs.push({ p: p, q: q, d: sigDistance(pdfSigs[p], rowSigs[q]) });
-        }
-      }
-      pairs.sort(function (a, b) { return a.d - b.d; });
-      var usedP = {}, usedQ = {}, matches = [];
-      pairs.forEach(function (pr) {
-        if (pr.d > 22 || usedP[pr.p] || usedQ[pr.q]) return;
-        usedP[pr.p] = true;
-        usedQ[pr.q] = true;
-        matches.push(pr);
-      });
-      btn.disabled = false;
-      progress(label);
-      var msg = 'ב-PDF יש ' + pdfImages.length + ' תמונות, באלבום ' + rows.length + '.\nנמצאו ' + matches.length + ' התאמות.\nלהחליף את ' + matches.length + ' התמונות באלבום בגרסאות מה-PDF? אי אפשר לבטל.';
-      if (!matches.length || !confirm(msg)) { done(); if (!matches.length) toast('לא נמצאו תמונות מתאימות ב-PDF'); return; }
-      btn.disabled = true;
-      var chain = Promise.resolve(), replaced = 0;
-      matches.forEach(function (m, i) {
-        chain = chain.then(function () {
-          progress('מחליף ' + (i + 1) + '/' + matches.length);
-          var im = pdfImages[m.p], row = rows[m.q];
-          // copy the bytes into a standalone Blob so nothing in the album points back at the picked file
-          return im.slice.arrayBuffer().then(function (buf) {
-            var copy = new Blob([buf], { type: 'image/jpeg' });
-            return dbReplaceBlob(row.id, copy, rectsForStripWidth(im.w)).then(function (ok) {
-              if (!ok) return;
-              replaced++;
-              return thumbFromBlob(copy).then(function (t) { return dbPutThumb(row.id, t); }).catch(function () {});
-            });
-          });
-        });
-      });
-      return chain.then(function () { done(); toast('הוחלפו ' + replaced + ' תמונות באלבום'); });
-    }).catch(function () {
-      done();
-      toast('לא הצלחתי לקרוא את ה-PDF - צריך את הקובץ שנוצר מהאפליקציה');
-    });
-  }
-  $('import-pdf-btn').addEventListener('click', function () { $('import-pdf-input').click(); });
-  $('import-pdf-input').addEventListener('change', function () {
-    var f = this.files && this.files[0];
-    this.value = '';
-    if (f) importPdfReplace(f);
-  });
-
   function exportEventPdf(eventName, onDone) {
     dbAllForEvent(eventName).then(function (rows) {
       exportRowsPdf(rows, 'memories4u-event-photos.pdf', onDone);
     });
+  }
+  $('export-all-btn').addEventListener('click', function () { exportEventPdf(getActiveEventName()); });
+
+  // ---------- Start ----------
+  // Get every design's logo/image layers decoding right away, so the first
+  // photo of the night already has them ready.
+  preloadDesignImages(getStripDesign());
+  preloadDesignImages(getWideDesign());
+
+  // Keeps the iPad's screen from auto-locking while this app is open - it's a
+  // staffed kiosk running non-stop through an event, and the screen dimming or
+  // locking mid-use would interrupt a guest mid-photo. The browser releases the
+  // lock whenever the screen locks or the app is backgrounded, so it's
+  // re-requested every time the app comes back to the front (see the
+  // visibilitychange listener below).
+  var wakeLock = null;
+  function requestWakeLock() {
+    if (!('wakeLock' in navigator)) return;
+    navigator.wakeLock.request('screen').then(function (lock) { wakeLock = lock; }).catch(function () {});
   }
   requestWakeLock();
 

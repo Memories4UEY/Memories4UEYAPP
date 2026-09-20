@@ -22,7 +22,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="assets/css/style.css?v=20260920p">
+<link rel="stylesheet" href="assets/css/style.css?v=20260920s">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Dancing+Script:wght@600&family=Playfair+Display:ital@1&family=Amatic+SC:wght@700&family=Caveat:wght@600&family=Cormorant+Garamond:ital@1&family=Suez+One&family=Frank+Ruhl+Libre:ital,wght@0,500;1,500&family=Bellefair&family=Miriam+Libre:wght@700&family=Secular+One&family=Heebo:wght@700&family=David+Libre:wght@700&family=Alex+Brush&family=Allura&family=Parisienne&family=Tangerine:wght@700&family=Pinyon+Script&family=Mrs+Saint+Delafield&family=Sacramento&family=Yellowtail&display=swap">
 <style>
   html, body {
@@ -789,6 +789,15 @@
     background: var(--color-surface);
   }
   .gallery-item.selected { border: 3px solid var(--color-gold); }
+  .trash-event {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    padding: 3px 6px;
+    background: rgba(12,12,14,.78);
+    color: var(--color-text);
+    font-size: 11px;
+    text-align: center;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
   /* In selection mode a horizontal drag across tiles selects them (like the
      Photos app) while a vertical drag still scrolls the grid. */
   .gallery-grid.selecting .gallery-item { touch-action: pan-y; }
@@ -1185,8 +1194,6 @@
       <button type="button" class="btn btn-ghost" id="open-gallery-btn">🖼 גלריה</button>
     </div>
     <button type="button" class="btn btn-ghost" id="brb-toggle-btn">🚻 תכף נשוב</button>
-    <button type="button" class="btn btn-ghost" id="import-pdf-btn">📥 ייבוא תמונות מ-PDF (החלפה)</button>
-    <input type="file" id="import-pdf-input" accept="application/pdf" style="display:none">
     <div class="active-event-row">
       <p id="active-event-label" class="active-event-label-big"></p>
       <button type="button" class="btn btn-ghost active-event-clear-btn" id="clear-active-event-btn" title="ניקוי האירוע הפעיל">✖</button>
@@ -1425,10 +1432,10 @@
       <span class="icon-btn-label">ייצוא</span>
     </div>
   </div>
-  <button class="btn" id="gallery-repair-btn" style="display:none;margin:0 12px 8px"></button>
   <div class="gallery-toolbar" id="gallery-admin-toolbar">
     <button class="btn btn-ghost" id="gallery-select-btn">☑ בחירה</button>
     <button class="btn btn-ghost" id="gallery-delete-all-btn">🗑️ מחק הכל</button>
+    <button class="btn btn-ghost" id="gallery-trash-btn">♻️ סל מחזור</button>
   </div>
   <div class="gallery-toolbar" id="gallery-selection-toolbar" style="display:none">
     <button class="btn btn-ghost" id="gallery-select-all-btn">בחר הכל</button>
@@ -1437,6 +1444,28 @@
     <button class="btn btn-ghost" id="gallery-cancel-select-btn">ביטול</button>
   </div>
   <div id="gallery-grid" class="gallery-grid"></div>
+</div>
+
+<!-- ============ RECYCLE BIN ============ -->
+<div id="screen-trash" class="screen">
+  <div class="topbar">
+    <div class="icon-btn-group">
+      <button class="icon-btn" id="trash-back-btn" aria-label="חזרה לגלריה">‹</button>
+      <span class="icon-btn-label">חזור</span>
+    </div>
+    <div class="gallery-title-wrap">
+      <span class="brand">סל מחזור</span>
+      <span id="trash-count" class="gallery-count-label"></span>
+    </div>
+    <div class="icon-btn-spacer"></div>
+  </div>
+  <div class="gallery-toolbar">
+    <button class="btn btn-ghost" id="trash-select-all-btn">בחר הכל</button>
+    <button class="btn btn-ghost" id="trash-restore-btn">♻️ שחזר (0)</button>
+    <button class="btn btn-ghost" id="trash-delete-btn">🗑️ מחק לצמיתות (0)</button>
+    <button class="btn btn-ghost" id="trash-empty-btn">רוקן סל</button>
+  </div>
+  <div id="trash-grid" class="gallery-grid"></div>
 </div>
 
 <!-- ============ DESIGN EDITOR ============ -->
@@ -1538,6 +1567,6 @@
 
 <script src="assets/js/qrcode-generator.js"></script>
 <script src="assets/js/gifenc.js"></script>
-<script src="assets/js/app.js?v=20260920p"></script>
+<script src="assets/js/app.js?v=20260920s"></script>
 </body>
 </html>
