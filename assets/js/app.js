@@ -166,7 +166,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260920s';
+  var APP_VERSION = '20260920t';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -246,12 +246,38 @@
   // have no eventName, which reads back as '' (the same "no event
   // loaded" default), so they stay visible together as long as no named
   // event has claimed that bucket.
+  // Photos keep the event name they were saved under, so renaming an event
+  // logs {from, to, at} here instead of rewriting every (large) photo row.
+  // A rename only applies to photos taken before it, so a new event later
+  // reusing the old name doesn't swallow the renamed event's photos.
+  var EVENT_RENAMES_KEY = 'm4u_event_renames';
+  function getEventRenames() {
+    try {
+      var list = JSON.parse(localStorage.getItem(EVENT_RENAMES_KEY) || '[]');
+      return Array.isArray(list) ? list : [];
+    } catch (e) { return []; }
+  }
+  function recordEventRename(oldName, newName) {
+    var list = getEventRenames();
+    list.push({ from: oldName, to: newName, at: Date.now() });
+    localStorage.setItem(EVENT_RENAMES_KEY, JSON.stringify(list));
+  }
+  function currentEventNameOf(row, renames) {
+    var name = row.eventName || '';
+    var t = row.createdAt || 0;
+    (renames || getEventRenames()).forEach(function (r) {
+      if (r.from === name && r.at > t) name = r.to;
+    });
+    return name;
+  }
   function dbAllForEvent(eventName) {
     return Promise.all([dbAll(), dbTrashMap()]).then(function (r) {
       var name = eventName || '';
-      return r[0].filter(function (row) { return !r[1][row.id] && (row.eventName || '') === name; });
+      var renames = getEventRenames();
+      return r[0].filter(function (row) { return !r[1][row.id] && currentEventNameOf(row, renames) === name; });
     });
   }
+  function photosLabel(n) { return n === 1 ? 'תמונה אחת' : n + ' תמונות'; }
   function dbAllForActiveEvent() { return dbAllForEvent(getActiveEventName()); }
   function dbDelete(id) {
     return dbPromise.then(function (db) {
@@ -702,6 +728,7 @@
         var wasActive = getActiveEventName() === entry.name;
         list2[idx].name = newName;
         setSavedEvents(list2);
+        recordEventRename(entry.name, newName);
         if (wasActive) setActiveEventName(newName);
         refreshBoth();
         toast('שם האירוע עודכן');
@@ -2793,7 +2820,7 @@
     dbAllForActiveEvent().then(function (rows) {
       if (myGen !== galleryRenderGen) return;
       galleryRows = rows;
-      $('gallery-photo-count').textContent = isGuestGallery ? '' : (rows.length + ' תמונות');
+      $('gallery-photo-count').textContent = isGuestGallery ? '' : photosLabel(rows.length);
       if (!rows.length) {
         var empty = document.createElement('div');
         empty.className = 'gallery-empty';
@@ -2856,7 +2883,7 @@
     // A clear running count in the title while selecting (the buttons carry it
     // too, but it's easy to miss there); back to the plain total when done.
     if (galleryReturnScreen !== 'screen-result') {
-      $('gallery-photo-count').textContent = gallerySelectMode ? ('נבחרו ' + selectedCount + ' מתוך ' + galleryRows.length) : (galleryRows.length + ' תמונות');
+      $('gallery-photo-count').textContent = gallerySelectMode ? ('נבחרו ' + selectedCount + ' מתוך ' + galleryRows.length) : photosLabel(galleryRows.length);
     }
   }
   function setItemSelected(item, on) {
@@ -3018,7 +3045,7 @@
   $('gallery-delete-selected-btn').addEventListener('click', function () {
     var ids = Object.keys(gallerySelectedIds);
     if (!ids.length) { toast('לא סימנתם תמונות'); return; }
-    if (!confirm('להעביר ' + ids.length + ' תמונות שסומנו לסל המחזור? אפשר לשחזר אותן משם.')) return;
+    if (!confirm(ids.length === 1 ? 'להעביר את התמונה שסומנה לסל המחזור? אפשר לשחזר אותה משם.' : 'להעביר ' + ids.length + ' תמונות שסומנו לסל המחזור? אפשר לשחזר אותן משם.')) return;
     moveToTrash(ids.map(function (id) { return Number(id); })).then(function () {
       gallerySelectedIds = {};
       toast('התמונות שסומנו הועברו לסל המחזור');
@@ -3038,7 +3065,7 @@
   var trashSelected = {};
   var trashRowsNow = [];
   var trashThumbUrls = [];
-  function trashCountLabel() { return trashRowsNow.length + ' תמונות'; }
+  function trashCountLabel() { return photosLabel(trashRowsNow.length); }
   function updateTrashButtons() {
     var n = Object.keys(trashSelected).length;
     $('trash-restore-btn').textContent = '♻️ שחזר (' + n + ')';
@@ -3080,7 +3107,7 @@
         item.appendChild(check);
         var label = document.createElement('div');
         label.className = 'trash-event';
-        label.textContent = row.eventName || 'ללא שם';
+        label.textContent = currentEventNameOf(row) || 'ללא שם';
         item.appendChild(label);
         item.addEventListener('click', function () {
           var on = !trashSelected[row.id];
@@ -3121,7 +3148,7 @@
     var ids = Object.keys(trashSelected).map(Number);
     if (!ids.length) { toast('לא סימנתם תמונות'); return; }
     dbTrashRemove(ids).then(function () {
-      toast(ids.length + ' תמונות שוחזרו לאלבום שלהן');
+      toast(ids.length === 1 ? 'התמונה שוחזרה לאלבום שלה' : ids.length + ' תמונות שוחזרו לאלבום שלהן');
       renderTrash();
     });
   });
@@ -3131,12 +3158,12 @@
   $('trash-delete-btn').addEventListener('click', function () {
     var ids = Object.keys(trashSelected).map(Number);
     if (!ids.length) { toast('לא סימנתם תמונות'); return; }
-    if (!confirm('למחוק ' + ids.length + ' תמונות לצמיתות? אי אפשר לשחזר אותן אחרי זה.')) return;
+    if (!confirm(ids.length === 1 ? 'למחוק את התמונה לצמיתות? אי אפשר לשחזר אותה אחרי זה.' : 'למחוק ' + ids.length + ' תמונות לצמיתות? אי אפשר לשחזר אותן אחרי זה.')) return;
     deleteForever(ids).then(function () { toast('נמחקו לצמיתות'); renderTrash(); });
   });
   $('trash-empty-btn').addEventListener('click', function () {
     if (!trashRowsNow.length) { toast('סל המחזור כבר ריק'); return; }
-    if (!confirm('לרוקן את סל המחזור? ' + trashRowsNow.length + ' תמונות יימחקו לצמיתות ולא יהיה אפשר לשחזר אותן.')) return;
+    if (!confirm(trashRowsNow.length === 1 ? 'לרוקן את סל המחזור? התמונה תימחק לצמיתות ולא יהיה אפשר לשחזר אותה.' : 'לרוקן את סל המחזור? ' + trashRowsNow.length + ' תמונות יימחקו לצמיתות ולא יהיה אפשר לשחזר אותן.')) return;
     deleteForever(trashRowsNow.map(function (r) { return r.id; })).then(function () { toast('סל המחזור רוקן'); renderTrash(); });
   });
 
