@@ -22,7 +22,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="assets/css/style.css?v=20260920t">
+<link rel="stylesheet" href="assets/css/style.css?v=20260920u">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Dancing+Script:wght@600&family=Playfair+Display:ital@1&family=Amatic+SC:wght@700&family=Caveat:wght@600&family=Cormorant+Garamond:ital@1&family=Suez+One&family=Frank+Ruhl+Libre:ital,wght@0,500;1,500&family=Bellefair&family=Miriam+Libre:wght@700&family=Secular+One&family=Heebo:wght@700&family=David+Libre:wght@700&family=Alex+Brush&family=Allura&family=Parisienne&family=Tangerine:wght@700&family=Pinyon+Script&family=Mrs+Saint+Delafield&family=Sacramento&family=Yellowtail&display=swap">
 <style>
   html, body {
@@ -423,6 +423,8 @@
     text-shadow: 0 1px 6px rgba(0,0,0,.9), 0 1px 2px #000;
   }
   .gallery-title-wrap { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .gallery-event-name { font-size: 15px; font-weight: 700; color: var(--color-text, #f5f0e6); text-shadow: 0 1px 4px rgba(0,0,0,.9); max-width: 60vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .gallery-event-name:empty { display: none; }
   .gallery-count-label {
     font-size: 11px;
     color: var(--color-text-muted);
@@ -1425,6 +1427,7 @@
     </div>
     <div class="gallery-title-wrap">
       <span class="brand">כל התמונות</span>
+      <span id="gallery-event-name" class="gallery-event-name"></span>
       <span id="gallery-photo-count" class="gallery-count-label"></span>
     </div>
     <div class="icon-btn-group" id="export-all-group">
@@ -1567,6 +1570,6 @@
 
 <script src="assets/js/qrcode-generator.js"></script>
 <script src="assets/js/gifenc.js"></script>
-<script src="assets/js/app.js?v=20260920t"></script>
+<script src="assets/js/app.js?v=20260920u"></script>
 </body>
 </html>
