@@ -178,7 +178,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260921c';
+  var APP_VERSION = '20260921d';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -4454,6 +4454,7 @@
     $('remote-link-text').style.display = 'block';
     $('remote-reset-btn').style.display = '';
   }
+  var remoteQrFromSettings = false;
   function makeRemoteLink(fresh) {
     var run = function () {
       var secret = remoteSecret();
@@ -4467,6 +4468,9 @@
         localStorage.setItem(REMOTE_SEED_KEY, seed);
         remoteStop();
         remoteStart();
+        // The settings panel sits above the QR panel, so it steps aside and returns after.
+        remoteQrFromSettings = $('settings-panel').classList.contains('active') || remoteQrFromSettings;
+        $('settings-panel').classList.remove('active');
         $('qr-panel').classList.add('active');
         showRemoteQr();
         if (fresh) toast('הקישור אופס. טלפונים ישנים כבר לא מחוברים.');
@@ -4479,6 +4483,10 @@
   $('qr-close-btn').addEventListener('click', function () {
     $('remote-link-text').style.display = 'none';
     $('remote-reset-btn').style.display = 'none';
+    if (remoteQrFromSettings) {
+      remoteQrFromSettings = false;
+      $('settings-panel').classList.add('active');
+    }
   });
 
   // ---------- Start ----------
