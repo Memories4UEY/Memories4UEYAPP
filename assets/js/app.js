@@ -166,7 +166,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260920k';
+  var APP_VERSION = '20260920n';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -1895,6 +1895,10 @@
     resultReturnScreen = fromCapture ? 'screen-camera' : 'screen-gallery';
     currentPhotoIsLive = !!fromCapture;
     resultViaLastPhotoThumb = false;
+    photoZoomAllowed = !fromCapture && galleryReturnScreen !== 'screen-result';
+    $('result-canvas-view').style.touchAction = photoZoomAllowed ? 'none' : '';
+    zoomPointers = {};
+    resetPhotoZoom();
     bwCopySaved = false;
     bwPending = null;
     fullGifCache = null;
@@ -1973,6 +1977,91 @@
       }, 800);
     }
   }
+
+  // Pinch to zoom (two fingers), drag to move around while zoomed, and
+  // double-tap to zoom in/out on the photo. Done by hand because the page
+  // itself is locked against browser zoom (so the kiosk screen can't be
+  // pinched around by accident). Resets whenever a different photo opens.
+  var photoZoom = { s: 1, x: 0, y: 0 };
+  var zoomPointers = {};
+  var zoomBase = null;
+  var zoomLastTap = 0;
+  var zoomWasMulti = false;
+  // Zoom is a staff tool: only for a photo opened from the admin gallery, never
+  // for a guest's own fresh photo or a guest browsing the album.
+  var photoZoomAllowed = false;
+  function applyPhotoZoom() {
+    var img = $('result-canvas-view');
+    img.style.transform = photoZoom.s === 1 ? '' : 'translate(' + photoZoom.x + 'px,' + photoZoom.y + 'px) scale(' + photoZoom.s + ')';
+  }
+  function resetPhotoZoom() {
+    photoZoom = { s: 1, x: 0, y: 0 };
+    applyPhotoZoom();
+  }
+  function clampPhotoZoom() {
+    var img = $('result-canvas-view');
+    var maxX = (photoZoom.s - 1) * img.offsetWidth / 2, maxY = (photoZoom.s - 1) * img.offsetHeight / 2;
+    photoZoom.x = Math.max(-maxX, Math.min(maxX, photoZoom.x));
+    photoZoom.y = Math.max(-maxY, Math.min(maxY, photoZoom.y));
+  }
+  function zoomSnapshot() {
+    var ids = Object.keys(zoomPointers);
+    if (!ids.length) return null;
+    var a = zoomPointers[ids[0]], b = zoomPointers[ids[1]] || a;
+    var img = $('result-canvas-view');
+    var rect = img.getBoundingClientRect();
+    return {
+      n: ids.length,
+      dist: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)),
+      mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2,
+      s: photoZoom.s, tx: photoZoom.x, ty: photoZoom.y,
+      cx: rect.left + rect.width / 2 - photoZoom.x, cy: rect.top + rect.height / 2 - photoZoom.y
+    };
+  }
+  (function () {
+    var img = $('result-canvas-view');
+    img.addEventListener('pointerdown', function (e) {
+      if (!photoZoomAllowed) return;
+      if (!Object.keys(zoomPointers).length) zoomWasMulti = false; else zoomWasMulti = true;
+      zoomPointers[e.pointerId] = { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY };
+      try { img.setPointerCapture(e.pointerId); } catch (err) {}
+      zoomBase = zoomSnapshot();
+    });
+    img.addEventListener('pointermove', function (e) {
+      if (!zoomPointers[e.pointerId] || !zoomBase) return;
+      zoomPointers[e.pointerId].x = e.clientX;
+      zoomPointers[e.pointerId].y = e.clientY;
+      var cur = zoomSnapshot();
+      if (cur.n !== zoomBase.n) { zoomBase = cur; return; }
+      var s = zoomBase.n === 2 ? Math.max(1, Math.min(6, zoomBase.s * cur.dist / zoomBase.dist)) : zoomBase.s;
+      if (zoomBase.n === 1 && zoomBase.s === 1) return;
+      // keep the picture point that started under the fingers under them
+      photoZoom.s = s;
+      photoZoom.x = cur.mx - zoomBase.cx - (s / zoomBase.s) * (zoomBase.mx - zoomBase.cx - zoomBase.tx);
+      photoZoom.y = cur.my - zoomBase.cy - (s / zoomBase.s) * (zoomBase.my - zoomBase.cy - zoomBase.ty);
+      if (s === 1) { photoZoom.x = 0; photoZoom.y = 0; }
+      clampPhotoZoom();
+      applyPhotoZoom();
+    });
+    function up(e) {
+      var wasSingle = Object.keys(zoomPointers).length === 1;
+      var p = zoomPointers[e.pointerId];
+      delete zoomPointers[e.pointerId];
+      zoomBase = zoomSnapshot();
+      // a tap = one finger that never moved and never had company
+      if (wasSingle && p && !zoomWasMulti && e.type === 'pointerup' && Math.hypot(e.clientX - p.sx, e.clientY - p.sy) < 8) {
+        var now = Date.now();
+        if (now - zoomLastTap < 320) {
+          if (photoZoom.s > 1) resetPhotoZoom(); else { photoZoom.s = 2.5; photoZoom.x = 0; photoZoom.y = 0; applyPhotoZoom(); }
+          zoomLastTap = 0;
+        } else {
+          zoomLastTap = now;
+        }
+      }
+    }
+    img.addEventListener('pointerup', up);
+    img.addEventListener('pointercancel', up);
+  })();
 
   // Lays out, from the photo's own measured edges outward: photo, then
   // (staff gallery only) the prev/next arrow just outside it, then the
@@ -3773,192 +3862,6 @@
       if (onDone) onDone();
     }).catch(function () { toast('הייצוא נכשל - נסו שוב'); });
   }
-  // ---------- Replace the album's photos with the ones inside a PDF ----------
-  // Reads the JPEG pages straight out of a PDF made by this app's own PDF
-  // export (each page is one embedded, untouched JPEG), matches every one to
-  // the album photo it came from by comparing tiny grayscale fingerprints
-  // (so the order of the pages doesn't matter), and swaps each photo's image
-  // in place - same album slot, same date, same order.
-  function readSlice(file, start, end) {
-    return file.slice(start, end).arrayBuffer();
-  }
-  function readPdfJpegs(file) {
-    var td = new TextDecoder('latin1');
-    return readSlice(file, Math.max(0, file.size - 2048), file.size).then(function (buf) {
-      var tail = td.decode(buf);
-      var m = tail.match(/startxref\s+(\d+)/);
-      if (!m) throw new Error('not a pdf');
-      return readSlice(file, parseInt(m[1], 10), file.size);
-    }).then(function (buf) {
-      var text = td.decode(buf);
-      var head = text.match(/^xref\s+0\s+(\d+)\s/);
-      if (!head) throw new Error('unknown pdf');
-      var total = parseInt(head[1], 10);
-      var lines = text.slice(head[0].length).split('\n');
-      var offsets = [];
-      for (var n = 1; n < total; n++) {
-        var entry = lines[n];   // line 0 is the free entry for object 0
-        offsets[n] = parseInt(entry.slice(0, 10), 10);
-      }
-      var images = [];
-      var chain = Promise.resolve();
-      for (var num = 1; num < total; num++) {
-        (function (objNum) {
-          chain = chain.then(function () {
-            return readSlice(file, offsets[objNum], offsets[objNum] + 400).then(function (b) {
-              var t = td.decode(b);
-              // only this object's own dictionary: it must reach its own
-              // "stream" before its "endobj", or it's not an image object
-              // (the 400 bytes read can run into the NEXT object)
-              var s = t.indexOf('stream\n'), cut = t.indexOf('endobj');
-              if (s < 0 || (cut >= 0 && cut < s)) return;
-              var dict = t.slice(0, s);
-              if (dict.indexOf('/Subtype /Image') < 0 || dict.indexOf('/DCTDecode') < 0) return;
-              var len = dict.match(/\/Length (\d+)/);
-              var wm = dict.match(/\/Width (\d+)/), hm = dict.match(/\/Height (\d+)/);
-              if (!len) return;
-              var start = offsets[objNum] + s + 7;
-              images.push({ blob: file.slice(start, start + parseInt(len[1], 10), 'image/jpeg'), w: wm ? +wm[1] : 0, h: hm ? +hm[1] : 0 });
-            });
-          });
-        })(num);
-      }
-      return chain.then(function () { return images; });
-    });
-  }
-  function imageSignature(blob) {
-    return new Promise(function (resolve, reject) {
-      var img = new Image();
-      var url = URL.createObjectURL(blob);
-      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('decode')); };
-      img.onload = function () {
-        // shrink in halving steps - one big jump would alias differently for
-        // photos of different sizes and spoil the comparison
-        var src = img, sw = img.naturalWidth, sh = img.naturalHeight;
-        while (sw > 96 || sh > 288) {
-          var nw = Math.max(24, Math.round(sw / 2)), nh = Math.max(72, Math.round(sh / 2));
-          var c = document.createElement('canvas');
-          c.width = nw; c.height = nh;
-          var cx = c.getContext('2d');
-          cx.imageSmoothingQuality = 'high';
-          cx.drawImage(src, 0, 0, nw, nh);
-          src = c; sw = nw; sh = nh;
-        }
-        var f = document.createElement('canvas');
-        f.width = 24; f.height = 72;
-        var fx = f.getContext('2d');
-        fx.imageSmoothingQuality = 'high';
-        fx.drawImage(src, 0, 0, 24, 72);
-        URL.revokeObjectURL(url);
-        var d = fx.getImageData(0, 0, 24, 72).data;
-        var sig = new Float32Array(24 * 72), mean = 0, i;
-        for (i = 0; i < sig.length; i++) { sig[i] = d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114; mean += sig[i]; }
-        mean /= sig.length;
-        for (i = 0; i < sig.length; i++) sig[i] -= mean;
-        resolve(sig);
-      };
-      img.src = url;
-    });
-  }
-  function sigDistance(a, b) {
-    var s = 0;
-    for (var i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]);
-    return s / a.length;
-  }
-  function dbReplaceBlob(id, blob, rects) {
-    return dbPromise.then(function (db) {
-      return new Promise(function (resolve, reject) {
-        var tx = db.transaction(STORE, 'readwrite');
-        var st = tx.objectStore(STORE);
-        var g = st.get(id);
-        var found = false;
-        g.onsuccess = function () {
-          var rec = g.result;
-          if (!rec) return;
-          found = true;
-          rec.blob = blob;
-          rec.photoRects = rects;
-          st.put(rec);
-        };
-        tx.oncomplete = function () { resolve(found); };
-        tx.onerror = function () { reject(tx.error); };
-      });
-    });
-  }
-  function rectsForStripWidth(w) {
-    var s = w / 600;
-    return [40, 550, 1060].map(function (y) { return { x: Math.round(36 * s), y: Math.round(y * s), w: Math.round(528 * s), h: Math.round(490 * s), r: 7 * s }; });
-  }
-  function importPdfReplace(file) {
-    var btn = $('import-pdf-btn');
-    var label = btn.textContent;
-    function progress(t) { btn.textContent = t; }
-    function done() { btn.textContent = label; btn.disabled = false; }
-    if (!getActiveEventName()) { toast('צריך לטעון אירוע קודם'); return; }
-    btn.disabled = true;
-    progress('קורא את ה-PDF...');
-    var pdfImages, rows, pdfSigs = [], rowSigs = [];
-    Promise.all([readPdfJpegs(file), dbAllForActiveEvent()]).then(function (r) {
-      pdfImages = r[0];
-      rows = r[1];
-      if (!pdfImages.length) throw new Error('empty');
-      var chain = Promise.resolve();
-      rows.forEach(function (row, i) {
-        chain = chain.then(function () {
-          progress('מנתח אלבום ' + (i + 1) + '/' + rows.length);
-          return imageSignature(row.blob).then(function (s) { rowSigs[i] = s; });
-        });
-      });
-      pdfImages.forEach(function (im, i) {
-        chain = chain.then(function () {
-          progress('מנתח PDF ' + (i + 1) + '/' + pdfImages.length);
-          return imageSignature(im.blob).then(function (s) { pdfSigs[i] = s; });
-        });
-      });
-      return chain;
-    }).then(function () {
-      var pairs = [];
-      for (var p = 0; p < pdfSigs.length; p++) {
-        for (var q = 0; q < rowSigs.length; q++) pairs.push({ p: p, q: q, d: sigDistance(pdfSigs[p], rowSigs[q]) });
-      }
-      pairs.sort(function (a, b) { return a.d - b.d; });
-      var usedP = {}, usedQ = {}, matches = [];
-      pairs.forEach(function (pr) {
-        if (pr.d > 22 || usedP[pr.p] || usedQ[pr.q]) return;
-        usedP[pr.p] = true;
-        usedQ[pr.q] = true;
-        matches.push(pr);
-      });
-      btn.disabled = false;
-      progress(label);
-      var msg = 'ב-PDF יש ' + pdfImages.length + ' תמונות, באלבום ' + rows.length + '.\nנמצאו ' + matches.length + ' התאמות.\nלהחליף את ' + matches.length + ' התמונות באלבום בגרסאות מה-PDF? אי אפשר לבטל.';
-      if (!matches.length || !confirm(msg)) { done(); if (!matches.length) toast('לא נמצאו תמונות מתאימות ב-PDF'); return; }
-      btn.disabled = true;
-      var chain = Promise.resolve(), replaced = 0;
-      matches.forEach(function (m, i) {
-        chain = chain.then(function () {
-          progress('מחליף ' + (i + 1) + '/' + matches.length);
-          var im = pdfImages[m.p], row = rows[m.q];
-          return dbReplaceBlob(row.id, im.blob, rectsForStripWidth(im.w)).then(function (ok) {
-            if (!ok) return;
-            replaced++;
-            return thumbFromBlob(im.blob).then(function (t) { return dbPutThumb(row.id, t); }).catch(function () {});
-          });
-        });
-      });
-      return chain.then(function () { done(); toast('הוחלפו ' + replaced + ' תמונות באלבום'); });
-    }).catch(function () {
-      done();
-      toast('לא הצלחתי לקרוא את ה-PDF - צריך את הקובץ שנוצר מהאפליקציה');
-    });
-  }
-  $('import-pdf-btn').addEventListener('click', function () { $('import-pdf-input').click(); });
-  $('import-pdf-input').addEventListener('change', function () {
-    var f = this.files && this.files[0];
-    this.value = '';
-    if (f) importPdfReplace(f);
-  });
-
   function exportEventPdf(eventName, onDone) {
     dbAllForEvent(eventName).then(function (rows) {
       exportRowsPdf(rows, 'memories4u-event-photos.pdf', onDone);
