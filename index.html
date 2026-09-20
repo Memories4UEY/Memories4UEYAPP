@@ -22,7 +22,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="assets/css/style.css?v=20260920w">
+<link rel="stylesheet" href="assets/css/style.css?v=20260920z">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Dancing+Script:wght@600&family=Playfair+Display:ital@1&family=Amatic+SC:wght@700&family=Caveat:wght@600&family=Cormorant+Garamond:ital@1&family=Suez+One&family=Frank+Ruhl+Libre:ital,wght@0,500;1,500&family=Bellefair&family=Miriam+Libre:wght@700&family=Secular+One&family=Heebo:wght@700&family=David+Libre:wght@700&family=Alex+Brush&family=Allura&family=Parisienne&family=Tangerine:wght@700&family=Pinyon+Script&family=Mrs+Saint+Delafield&family=Sacramento&family=Yellowtail&display=swap">
 <style>
   html, body {
@@ -780,14 +780,15 @@
     flex: 1;
     overflow-y: auto;
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
     grid-auto-rows: max-content;
     gap: 8px;
     padding: 10px;
   }
   .gallery-item {
     position: relative;
-    aspect-ratio: 2/3;
+    aspect-ratio: 1/3;
+    align-self: start;
     border-radius: 8px;
     overflow: hidden;
     border: 1px solid var(--color-border);
@@ -821,12 +822,16 @@
   .trash-viewer.active { display: flex; }
   .trash-viewer-top { display: flex; align-items: center; justify-content: space-between; padding: calc(10px + env(safe-area-inset-top)) 14px 10px; }
   .trash-viewer-event { color: var(--color-text); font-size: 14px; text-align: center; }
-  .trash-viewer-body { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 10px; }
-  .trash-viewer-body img { flex: 1; min-width: 0; max-height: 100%; object-fit: contain; }
+  .trash-viewer-body { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 0 64px; }
+  .trash-viewer-frame { position: relative; display: flex; max-width: 100%; }
+  .trash-viewer-frame img { display: block; max-width: 100%; max-height: calc(100dvh - 190px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); object-fit: contain; }
+  .trash-viewer-frame .icon-btn { position: absolute; top: 50%; transform: translateY(-50%); }
+  #trash-viewer-prev { left: calc(100% + 10px); }
+  #trash-viewer-next { right: calc(100% + 10px); }
   .trash-viewer-actions { display: flex; gap: 10px; justify-content: center; padding: 12px 14px 16px; }
   .gallery-grid.selecting .gallery-item { touch-action: pan-y; }
   .gallery-grid.selecting img { pointer-events: none; -webkit-touch-callout: none; }
-  .gallery-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .gallery-item img { width: 100%; height: 100%; object-fit: contain; display: block; }
   .gallery-check {
     position: absolute;
     top: 6px; left: 6px;
@@ -1498,9 +1503,11 @@
       <div class="icon-btn-spacer"></div>
     </div>
     <div class="trash-viewer-body">
-      <button class="icon-btn" id="trash-viewer-prev" aria-label="הקודמת">›</button>
-      <img id="trash-viewer-img" alt="">
-      <button class="icon-btn" id="trash-viewer-next" aria-label="הבאה">‹</button>
+      <div class="trash-viewer-frame">
+        <img id="trash-viewer-img" alt="">
+        <button class="icon-btn" id="trash-viewer-prev" aria-label="הקודמת">‹</button>
+        <button class="icon-btn" id="trash-viewer-next" aria-label="הבאה">›</button>
+      </div>
     </div>
     <div class="trash-viewer-actions">
       <button class="btn" id="trash-viewer-restore">♻️ שחזר</button>
@@ -1608,6 +1615,6 @@
 
 <script src="assets/js/qrcode-generator.js"></script>
 <script src="assets/js/gifenc.js"></script>
-<script src="assets/js/app.js?v=20260920w"></script>
+<script src="assets/js/app.js?v=20260920z"></script>
 </body>
 </html>

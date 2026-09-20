@@ -166,7 +166,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260920w';
+  var APP_VERSION = '20260920z';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -2840,6 +2840,7 @@
           var item = document.createElement('div');
           item.className = 'gallery-item' + (gallerySelectMode && isSelected ? ' selected' : '');
           var img = document.createElement('img');
+          fitTileToPhoto(item, img, row);
           if (thumbs[row.id]) {
             var url = URL.createObjectURL(thumbs[row.id]);
             galleryThumbUrls.push(url);
@@ -2874,6 +2875,14 @@
           grid.appendChild(item);
         });
       });
+    });
+  }
+  // Each tile takes its photo's own shape (tall strip or wide card) so the
+  // whole photo shows, small, without cropping or tiles overlapping.
+  function fitTileToPhoto(item, img, row) {
+    item.style.aspectRatio = row.photoRects && row.photoRects.length === 1 ? '2200 / 3483' : '1 / 3';
+    img.addEventListener('load', function () {
+      if (img.naturalWidth && img.naturalHeight) item.style.aspectRatio = img.naturalWidth + ' / ' + img.naturalHeight;
     });
   }
   var galleryThumbUrls = [];
@@ -3162,6 +3171,7 @@
         var item = document.createElement('div');
         item.className = 'gallery-item';
         var img = document.createElement('img');
+        fitTileToPhoto(item, img, row);
         if (thumbs[row.id]) {
           var url = URL.createObjectURL(thumbs[row.id]);
           trashThumbUrls.push(url);
