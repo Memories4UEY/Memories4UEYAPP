@@ -22,7 +22,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="assets/css/style.css?v=20260920z">
+<link rel="stylesheet" href="assets/css/style.css?v=20260921c">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Dancing+Script:wght@600&family=Playfair+Display:ital@1&family=Amatic+SC:wght@700&family=Caveat:wght@600&family=Cormorant+Garamond:ital@1&family=Suez+One&family=Frank+Ruhl+Libre:ital,wght@0,500;1,500&family=Bellefair&family=Miriam+Libre:wght@700&family=Secular+One&family=Heebo:wght@700&family=David+Libre:wght@700&family=Alex+Brush&family=Allura&family=Parisienne&family=Tangerine:wght@700&family=Pinyon+Script&family=Mrs+Saint+Delafield&family=Sacramento&family=Yellowtail&display=swap">
 <style>
   html, body {
@@ -1222,6 +1222,7 @@
       <button type="button" class="btn btn-ghost" id="print-settings-btn">🖨️ כתובת הדפסה</button>
       <button type="button" class="btn btn-ghost" id="open-gallery-btn">🖼 גלריה</button>
     </div>
+    <button type="button" class="btn btn-ghost" id="remote-link-btn">📱 שליטה מהטלפון</button>
     <button type="button" class="btn btn-ghost" id="brb-toggle-btn">🚻 תכף נשוב</button>
     <div class="active-event-row">
       <p id="active-event-label" class="active-event-label-big"></p>
@@ -1560,6 +1561,8 @@
   <div id="qr-box">
     <div id="qr-render"></div>
     <p id="qr-status">מעלים את התמונה…</p>
+    <p id="remote-link-text" style="display:none;font-size:11px;word-break:break-all;user-select:all;-webkit-user-select:all;direction:ltr;text-align:left"></p>
+    <button class="btn btn-ghost" id="remote-reset-btn" style="display:none">איפוס הקישור</button>
     <button class="btn btn-ghost" id="qr-close-btn">סגירה</button>
   </div>
 </div>
@@ -1615,6 +1618,7 @@
 
 <script src="assets/js/qrcode-generator.js"></script>
 <script src="assets/js/gifenc.js"></script>
-<script src="assets/js/app.js?v=20260920z"></script>
+<script src="assets/js/mqtt.min.js?v=1"></script>
+<script src="assets/js/app.js?v=20260921c"></script>
 </body>
 </html>

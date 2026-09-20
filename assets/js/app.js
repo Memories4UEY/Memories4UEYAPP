@@ -89,6 +89,9 @@
     });
   }
 
+  // The password as last typed correctly, kept in memory only (gone on reload).
+  // Needed once, to derive the phone-remote encryption key when its link is made.
+  var adminPasswordMemory = '';
   // ---------- Lock screen ----------
   if (sessionStorage.getItem(UNLOCK_KEY) === '1') {
     showScreen('screen-welcome');
@@ -98,6 +101,7 @@
     var val = $('lock-input').value;
     sha256Hex(val).then(function (hex) {
       if (hex === PASSWORD_HASH) {
+        adminPasswordMemory = val;
         sessionStorage.setItem(UNLOCK_KEY, '1');
         $('lock-error').textContent = '';
         showScreen('screen-welcome');
@@ -121,7 +125,14 @@
   // its own follow-up (e.g. the "no event loaded" prompt wants settings
   // to actually open, not just land on the welcome screen and stop).
   var adminModalOnSuccess = null;
+  // Set only while a command from the staff phone is being carried out: the
+  // phone already proved the password to the bridge, so no prompt is needed.
+  var remoteAdminOK = false;
   function openAdminModal(onSuccess) {
+    if (remoteAdminOK) {
+      (onSuccess || function () { showScreen('screen-welcome'); })();
+      return;
+    }
     adminModalOnSuccess = onSuccess || function () { showScreen('screen-welcome'); };
     $('admin-password-input').value = '';
     $('admin-password-error').textContent = '';
@@ -135,6 +146,7 @@
     var val = $('admin-password-input').value;
     sha256Hex(val).then(function (hex) {
       if (hex === PASSWORD_HASH) {
+        adminPasswordMemory = val;
         closeAdminModal();
         var onSuccess = adminModalOnSuccess;
         adminModalOnSuccess = null;
@@ -166,7 +178,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260920z';
+  var APP_VERSION = '20260921c';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -4182,6 +4194,292 @@
     });
   }
   $('export-all-btn').addEventListener('click', function () { exportEventPdf(getActiveEventName()); });
+
+  // ---------- Phone remote control ----------
+  // The staff phone (remote.html) and this iPad talk through a free public
+  // MQTT message broker - no server of ours, no accounts, no laptop. A random
+  // secret shown once as a QR code (never typed) decides both the private
+  // topic name and the AES key, so everything on the broker is unreadable
+  // and unusable to anyone without the QR. The iPad reports its state every
+  // few seconds; while a phone is watching it also sends a small live picture
+  // of the camera / current photo, and it carries out the phone's commands.
+  // Everything is silent - nothing here ever shows anything to a guest.
+  var remoteCount = null;
+  var remoteCountAt = 0;
+  var remoteLastScreen = '';
+  function activeScreenId() {
+    var s = document.querySelector('.screen.active');
+    return s ? s.id : '';
+  }
+  function remoteState() {
+    var now = Date.now();
+    var screenNow = activeScreenId();
+    if (now - remoteCountAt > 10000 || screenNow !== remoteLastScreen) {
+      remoteLastScreen = screenNow;
+      remoteCountAt = now;
+      dbAllForActiveEvent().then(function (rows) { remoteCount = rows.length; }).catch(function () {});
+    }
+    var overlay = '';
+    if ($('brb-overlay').classList.contains('active')) overlay = 'brb';
+    else if ($('qr-panel').classList.contains('active')) overlay = 'qr';
+    else if ($('gif-panel').classList.contains('active')) overlay = 'gif';
+    return {
+      screen: activeScreenId(),
+      overlay: overlay,
+      capturing: !!countingDown,
+      mode: captureMode,
+      copies: printCopies,
+      bw: !!isBw,
+      event: getActiveEventName(),
+      count: remoteCount,
+      version: APP_VERSION
+    };
+  }
+  function remoteFrame(cb) {
+    var s = activeScreenId();
+    var src = s === 'screen-camera' ? $('video') : (s === 'screen-result' ? $('result-canvas-view') : null);
+    var sw = src && (src.videoWidth || src.naturalWidth);
+    var sh = src && (src.videoHeight || src.naturalHeight);
+    if (!sw || !sh) { cb(null); return; }
+    var sx = 0, sy = 0, cw = sw, ch = sh, mirror = false;
+    if (src === $('video')) {
+      // Same crop and mirroring the iPad screen shows (object-fit: cover, selfie flip).
+      var boxW = src.clientWidth, boxH = src.clientHeight;
+      if (boxW && boxH) {
+        if (sw / sh > boxW / boxH) { cw = sh * boxW / boxH; sx = (sw - cw) / 2; }
+        else { ch = sw * boxH / boxW; sy = (sh - ch) / 2; }
+      }
+      mirror = true;
+    }
+    var scale = Math.min(1, 480 / cw, 720 / ch);
+    var c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(cw * scale));
+    c.height = Math.max(1, Math.round(ch * scale));
+    var ctx = c.getContext('2d');
+    if (mirror) { ctx.translate(c.width, 0); ctx.scale(-1, 1); }
+    try { ctx.drawImage(src, sx, sy, cw, ch, 0, 0, c.width, c.height); } catch (e) { cb(null); return; }
+    c.toBlob(function (b) { cb(b); }, 'image/jpeg', 0.6);
+  }
+  function remoteClick(id) {
+    var b = $(id);
+    if (b && !b.disabled) b.click();
+  }
+  var REMOTE_COMMANDS = {
+    start: function (s) {
+      if (s === 'screen-welcome') remoteClick('welcome-start-btn');
+      else if (s === 'screen-ready') remoteClick('ready-start-btn');
+    },
+    shoot: function (s) { if (s === 'screen-camera') remoteClick('shutter-btn'); },
+    retake: function (s) { if (s === 'screen-result') remoteClick('btn-retake'); },
+    bw: function (s) { if (s === 'screen-result') remoteClick('btn-bw'); },
+    print: function (s) { if (s === 'screen-result') remoteClick('btn-print'); },
+    copies_plus: function (s) { if (s === 'screen-result') remoteClick('copies-plus'); },
+    copies_minus: function (s) { if (s === 'screen-result') remoteClick('copies-minus'); },
+    qr: function (s) { if (s === 'screen-result') remoteClick('btn-qr'); },
+    gif: function (s) { if (s === 'screen-result') remoteClick('btn-gif'); },
+    close: function () {
+      if ($('qr-panel').classList.contains('active')) remoteClick('qr-close-btn');
+      else if ($('gif-panel').classList.contains('active')) remoteClick('gif-close-btn');
+    },
+    back: function (s) {
+      if (s === 'screen-result') remoteClick('result-back-btn');
+      else if (s === 'screen-camera') remoteClick('camera-admin-btn');
+    },
+    brb_on: function () {
+      $('settings-panel').classList.remove('active');
+      setBrbActive(true);
+    },
+    brb_off: function () {
+      if (!$('brb-overlay').classList.contains('active')) return;
+      setBrbActive(false);
+      showScreen('screen-welcome');
+    }
+  };
+  function runRemoteCommand(cmd) {
+    var fn = REMOTE_COMMANDS[cmd];
+    if (!fn) return;
+    remoteAdminOK = true;
+    try { fn(activeScreenId()); } finally { remoteAdminOK = false; }
+  }
+  var REMOTE_SECRET_KEY = 'm4u_remote_secret';
+  var REMOTE_SEED_KEY = 'm4u_remote_seed';
+  var REMOTE_BROKERS = ['wss://broker.hivemq.com:8884/mqtt', 'wss://test.mosquitto.org:8081', 'wss://broker.emqx.io:8084/mqtt'];
+  var REMOTE_CMD_MAX_AGE_MS = 20000;
+  var remoteCtx = null;      // {topic, key} derived from the secret
+  var remoteClient = null;
+  var remoteConnected = false;
+  var remoteBrokerIdx = 0;
+  var remoteWatchAt = 0;
+  var remoteSeen = {};
+  var remoteSending = false;
+  function remoteSecret() { return localStorage.getItem(REMOTE_SECRET_KEY) || ''; }
+  function remoteHex(buf) {
+    return Array.prototype.map.call(new Uint8Array(buf), function (b) { return b.toString(16).padStart(2, '0'); }).join('');
+  }
+  // seed = PBKDF2(password, link secret): the QR link alone (no password) is
+  // useless, and the password alone (no link) is useless too.
+  function remoteSeedFrom(password, secret) {
+    var enc = new TextEncoder();
+    return crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']).then(function (km) {
+      return crypto.subtle.deriveBits({ name: 'PBKDF2', salt: enc.encode('m4u-remote|' + secret), iterations: 100000, hash: 'SHA-256' }, km, 256);
+    }).then(remoteHex);
+  }
+  function remoteDerive(seed) {
+    var enc = new TextEncoder();
+    return Promise.all([
+      crypto.subtle.digest('SHA-256', enc.encode('m4u-topic|' + seed)),
+      crypto.subtle.digest('SHA-256', enc.encode('m4u-key|' + seed))
+    ]).then(function (r) {
+      return crypto.subtle.importKey('raw', r[1], 'AES-GCM', false, ['encrypt', 'decrypt']).then(function (key) {
+        return { topic: 'm4u26/' + remoteHex(r[0]).slice(0, 32), key: key };
+      });
+    });
+  }
+  function remoteSeal(bytes) {
+    var iv = crypto.getRandomValues(new Uint8Array(12));
+    return crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, remoteCtx.key, bytes).then(function (ct) {
+      var out = new Uint8Array(12 + ct.byteLength);
+      out.set(iv, 0);
+      out.set(new Uint8Array(ct), 12);
+      return out;
+    });
+  }
+  function remoteOpen(buf) {
+    var u = new Uint8Array(buf);
+    return crypto.subtle.decrypt({ name: 'AES-GCM', iv: u.slice(0, 12) }, remoteCtx.key, u.slice(12)).then(function (pt) {
+      return new Uint8Array(pt);
+    });
+  }
+  function remoteHandle(topic, payload) {
+    if (!remoteCtx) return;
+    var kind = topic.slice(remoteCtx.topic.length + 1);
+    remoteOpen(payload).then(function (bytes) {
+      if (kind === 'w') { remoteWatchAt = Date.now(); return; }
+      if (kind !== 'c') return;
+      var msg = JSON.parse(new TextDecoder().decode(bytes));
+      var now = Date.now();
+      if (!msg.id || remoteSeen[msg.id] || Math.abs(now - msg.ts) > REMOTE_CMD_MAX_AGE_MS) return;
+      remoteSeen[msg.id] = now;
+      Object.keys(remoteSeen).forEach(function (k) { if (now - remoteSeen[k] > 60000) delete remoteSeen[k]; });
+      runRemoteCommand(msg.cmd);
+    }).catch(function () {});
+  }
+  function remoteConnect() {
+    if (remoteClient || typeof mqtt === 'undefined' || !remoteCtx) return;
+    var url = REMOTE_BROKERS[remoteBrokerIdx % REMOTE_BROKERS.length];
+    var wasUp = false;
+    var c;
+    try {
+      c = mqtt.connect(url, {
+        clientId: 'm4u-ipad-' + Math.random().toString(16).slice(2, 10),
+        reconnectPeriod: 0, connectTimeout: 6000, keepalive: 20, clean: true
+      });
+    } catch (e) { setTimeout(remoteConnect, 5000); return; }
+    remoteClient = c;
+    c.on('connect', function () {
+      wasUp = true;
+      remoteConnected = true;
+      c.subscribe([remoteCtx.topic + '/c', remoteCtx.topic + '/w']);
+    });
+    c.on('message', function (topic, payload) { remoteHandle(topic, payload); });
+    var ended = false;
+    function gone() {
+      if (ended) return;
+      ended = true;
+      remoteConnected = false;
+      remoteClient = null;
+      try { c.end(true); } catch (e) {}
+      if (!wasUp) remoteBrokerIdx++;
+      setTimeout(remoteConnect, wasUp ? 2000 : 3000);
+    }
+    c.on('close', gone);
+    c.on('error', gone);
+  }
+  function remotePublish(kind, bytes, retain) {
+    return remoteSeal(bytes).then(function (sealed) {
+      if (remoteClient && remoteConnected) remoteClient.publish(remoteCtx.topic + '/' + kind, sealed, { qos: 0, retain: !!retain });
+    });
+  }
+  var remoteLastStateAt = 0;
+  function remoteTick() {
+    setTimeout(remoteTick, 1000);
+    if (!remoteCtx || !remoteConnected || remoteSending || document.hidden) return;
+    var now = Date.now();
+    var watching = now - remoteWatchAt < 8000;
+    if (!watching && now - remoteLastStateAt < 3000) return;
+    remoteSending = true;
+    remoteLastStateAt = now;
+    var state = remoteState();
+    state.ts = now;
+    remotePublish('s', new TextEncoder().encode(JSON.stringify(state)), true)
+      .then(function () {
+        if (!watching) return;
+        return new Promise(function (resolve) {
+          remoteFrame(function (blob) {
+            if (!blob) { resolve(); return; }
+            blob.arrayBuffer().then(function (ab) { return remotePublish('f', new Uint8Array(ab), false); }).then(resolve, resolve);
+          });
+        });
+      })
+      .catch(function () {})
+      .then(function () { remoteSending = false; });
+  }
+  function remoteStart() {
+    var seed = localStorage.getItem(REMOTE_SEED_KEY) || '';
+    if (!seed || remoteCtx) return;
+    remoteDerive(seed).then(function (ctx) { remoteCtx = ctx; remoteConnect(); }).catch(function () {});
+  }
+  function remoteStop() {
+    remoteCtx = null;
+    remoteConnected = false;
+    if (remoteClient) { try { remoteClient.end(true); } catch (e) {} remoteClient = null; }
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden && remoteCtx && !remoteClient) remoteConnect();
+  });
+  setTimeout(remoteTick, 3000);
+  setTimeout(remoteStart, 2000);
+  // Settings button: shows the phone's QR / link (creates the secret the first time).
+  function remotePageUrl() {
+    return location.href.replace(/[#?].*$/, '').replace(/[^\/]*$/, '') + 'remote.html#' + remoteSecret();
+  }
+  function showRemoteQr() {
+    var url = remotePageUrl();
+    var qr = qrcode(0, 'M');
+    qr.addData(url);
+    qr.make();
+    $('qr-render').innerHTML = qr.createSvgTag({ cellSize: 5, margin: 2 });
+    $('qr-status').textContent = 'סרקו עם הטלפון של המנהל, ואז הקלידו את סיסמת ההגדרות. אפשר גם לשלוח לעצמכם את הקישור.';
+    $('remote-link-text').textContent = url;
+    $('remote-link-text').style.display = 'block';
+    $('remote-reset-btn').style.display = '';
+  }
+  function makeRemoteLink(fresh) {
+    var run = function () {
+      var secret = remoteSecret();
+      if (!secret || fresh) {
+        var a = new Uint8Array(16);
+        crypto.getRandomValues(a);
+        secret = remoteHex(a);
+        localStorage.setItem(REMOTE_SECRET_KEY, secret);
+      }
+      remoteSeedFrom(adminPasswordMemory, secret).then(function (seed) {
+        localStorage.setItem(REMOTE_SEED_KEY, seed);
+        remoteStop();
+        remoteStart();
+        $('qr-panel').classList.add('active');
+        showRemoteQr();
+        if (fresh) toast('הקישור אופס. טלפונים ישנים כבר לא מחוברים.');
+      });
+    };
+    if (adminPasswordMemory) run(); else openAdminModal(run);
+  }
+  $('remote-link-btn').addEventListener('click', function () { makeRemoteLink(false); });
+  $('remote-reset-btn').addEventListener('click', function () { makeRemoteLink(true); });
+  $('qr-close-btn').addEventListener('click', function () {
+    $('remote-link-text').style.display = 'none';
+    $('remote-reset-btn').style.display = 'none';
+  });
 
   // ---------- Start ----------
   // Get every design's logo/image layers decoding right away, so the first

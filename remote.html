@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>שליטה מרחוק | Memories4U</title>
+<style>
+  :root { --bg:#0c0c0e; --surface:#18181c; --surface2:#222227; --gold:#d8bb72; --text:#f3eee1; --muted:#a9a18d; --ok:#5fcf80; --bad:#e0655a; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system, "Segoe UI", Arial, sans-serif; }
+  body { min-height:100vh; padding:calc(12px + env(safe-area-inset-top)) 14px calc(20px + env(safe-area-inset-bottom)); display:flex; flex-direction:column; align-items:center; gap:12px; }
+  h1 { font-size:17px; margin:2px 0 0; color:var(--gold); letter-spacing:.04em; }
+  #login { width:100%; max-width:460px; display:flex; flex-direction:column; align-items:center; gap:12px; }
+  input { width:100%; font-size:20px; padding:14px; border-radius:12px; border:1px solid #3a3a42; background:var(--surface); color:var(--text); text-align:center; }
+  #app { width:100%; max-width:460px; display:flex; flex-direction:column; align-items:center; gap:12px; }
+  button { font:inherit; color:var(--text); border:1px solid #3a3a42; background:var(--surface2); border-radius:14px; padding:14px 10px; font-size:17px; font-weight:600; cursor:pointer; }
+  button:active { transform:scale(.98); }
+  button[disabled] { opacity:.4; }
+  .gold { background:var(--gold); color:#1a1508; border-color:var(--gold); }
+  .on { border-color:var(--gold); color:var(--gold); }
+  #status { display:flex; align-items:center; gap:8px; font-size:14px; color:var(--muted); text-align:center; }
+  #dot { width:10px; height:10px; border-radius:50%; background:var(--bad); flex:none; }
+  #dot.ok { background:var(--ok); }
+  #preview { width:100%; max-height:38vh; object-fit:contain; background:#000; border-radius:14px; display:none; }
+  #screenName { color:var(--muted); font-size:15px; padding:18px 8px; text-align:center; line-height:1.5; }
+  #buttons { width:100%; display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  #buttons .wide { grid-column:1 / -1; }
+  #buttons .big { font-size:22px; padding:20px 10px; }
+  #copies { display:flex; align-items:center; justify-content:center; gap:14px; grid-column:1 / -1; }
+  #copies button { width:56px; }
+  #copies span { font-size:22px; min-width:28px; text-align:center; }
+</style>
+</head>
+<body>
+<h1>Memories4U</h1>
+<div id="login" style="display:none">
+  <p style="text-align:center;color:var(--muted);margin:0">הקלידו את סיסמת ההגדרות</p>
+  <input id="pw" type="password" inputmode="text" placeholder="סיסמה" autocomplete="off">
+  <button class="gold" id="enter" style="width:100%">כניסה</button>
+  <div id="loginErr" style="color:var(--bad);min-height:20px;font-size:14px"></div>
+</div>
+<div id="app" style="display:none">
+  <div id="status"><span id="dot"></span><span id="statusText">מתחבר…</span></div>
+  <img id="preview" alt="">
+  <div id="screenName"></div>
+  <div id="buttons"></div>
+</div>
+<script src="assets/js/mqtt.min.js?v=1"></script>
+<script>
+(function () {
+  var BROKERS = ['wss://broker.hivemq.com:8884/mqtt', 'wss://test.mosquitto.org:8081', 'wss://broker.emqx.io:8084/mqtt'];
+  var KEY = 'm4u_remote_secret';
+  var PASSWORD_HASH = '56533080816acfbf988d15e31399b7ba108b2e525abc68387256075d6f8d2693'; // only for an instant "wrong password" message; the real gate is the encryption key
+  var $ = function (id) { return document.getElementById(id); };
+  var secret = '';
+  try {
+    var h = (location.hash || '').replace(/^#/, '');
+    if (/^[0-9a-f]{32}$/.test(h)) {
+      localStorage.setItem(KEY, h);
+      history.replaceState(null, '', location.pathname);
+    }
+    secret = localStorage.getItem(KEY) || '';
+  } catch (e) {}
+
+  function hex(buf) {
+    return Array.prototype.map.call(new Uint8Array(buf), function (b) { return b.toString(16).padStart(2, '0'); }).join('');
+  }
+  var ctx = null, client = null, brokerIdx = 0, connected = false, gotState = false;
+  var state = null, stateAt = 0, lastFrameUrl = null, lastSig = '';
+  var NAMES = {
+    'screen-lock': 'מסך נעילה', 'screen-welcome': 'מסך פתיחה', 'screen-ready': 'מוכנים לצלם',
+    'screen-camera': 'מצלמה', 'screen-result': 'התמונה', 'screen-gallery': 'גלריה',
+    'screen-trash': 'סל מחזור', 'screen-design': 'עורך עיצוב'
+  };
+
+  function seedFrom(password) {
+    var enc = new TextEncoder();
+    return crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']).then(function (km) {
+      return crypto.subtle.deriveBits({ name: 'PBKDF2', salt: enc.encode('m4u-remote|' + secret), iterations: 100000, hash: 'SHA-256' }, km, 256);
+    }).then(hex);
+  }
+  function derive(seed) {
+    var enc = new TextEncoder();
+    return Promise.all([
+      crypto.subtle.digest('SHA-256', enc.encode('m4u-topic|' + seed)),
+      crypto.subtle.digest('SHA-256', enc.encode('m4u-key|' + seed))
+    ]).then(function (r) {
+      return crypto.subtle.importKey('raw', r[1], 'AES-GCM', false, ['encrypt', 'decrypt']).then(function (key) {
+        return { topic: 'm4u26/' + hex(r[0]).slice(0, 32), key: key };
+      });
+    });
+  }
+  function seal(bytes) {
+    var iv = crypto.getRandomValues(new Uint8Array(12));
+    return crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, ctx.key, bytes).then(function (ct) {
+      var out = new Uint8Array(12 + ct.byteLength);
+      out.set(iv, 0); out.set(new Uint8Array(ct), 12);
+      return out;
+    });
+  }
+  function open(buf) {
+    var u = new Uint8Array(buf);
+    return crypto.subtle.decrypt({ name: 'AES-GCM', iv: u.slice(0, 12) }, ctx.key, u.slice(12)).then(function (pt) { return new Uint8Array(pt); });
+  }
+  function publish(kind, bytes) {
+    if (!client || !connected) return Promise.resolve();
+    return seal(bytes).then(function (sealed) { client.publish(ctx.topic + '/' + kind, sealed, { qos: 0 }); });
+  }
+
+  function connect() {
+    if (client || !ctx) return;
+    var url = BROKERS[brokerIdx % BROKERS.length];
+    var c;
+    try {
+      c = mqtt.connect(url, { clientId: 'm4u-phone-' + Math.random().toString(16).slice(2, 10), reconnectPeriod: 0, connectTimeout: 6000, keepalive: 20, clean: true });
+    } catch (e) { setTimeout(connect, 4000); return; }
+    client = c; gotState = false;
+    var ended = false;
+    var seek = null;
+    function gone() {
+      if (ended) return;
+      ended = true; connected = false; client = null; clearTimeout(seek);
+      try { c.end(true); } catch (e) {}
+      brokerIdx++;
+      setTimeout(connect, 1500);
+      render();
+    }
+    c.on('connect', function () {
+      connected = true;
+      c.subscribe([ctx.topic + '/s', ctx.topic + '/f']);
+      // If the iPad is not on this broker, its state never shows up here: try the next one.
+      seek = setTimeout(function () { if (!gotState) gone(); }, 5000);
+      render();
+    });
+    c.on('message', function (topic, payload) {
+      var kind = topic.slice(ctx.topic.length + 1);
+      open(payload).then(function (bytes) {
+        if (kind === 's') {
+          gotState = true;
+          state = JSON.parse(new TextDecoder().decode(bytes));
+          stateAt = Date.now();
+          render();
+        } else if (kind === 'f') {
+          var u = URL.createObjectURL(new Blob([bytes], { type: 'image/jpeg' }));
+          $('preview').src = u;
+          if (lastFrameUrl) URL.revokeObjectURL(lastFrameUrl);
+          lastFrameUrl = u;
+        }
+      }).catch(function () {});
+    });
+    c.on('close', gone);
+    c.on('error', gone);
+  }
+
+  function send(cmd, btn) {
+    if (btn) { btn.disabled = true; setTimeout(function () { btn.disabled = false; }, 700); }
+    if (navigator.vibrate) navigator.vibrate(30);
+    var id = Math.random().toString(16).slice(2) + Date.now().toString(16);
+    publish('c', new TextEncoder().encode(JSON.stringify({ cmd: cmd, id: id, ts: Date.now() })));
+  }
+  function b(label, cmd, cls, disabled) {
+    return '<button class="' + (cls || '') + '" data-cmd="' + cmd + '"' + (disabled ? ' disabled' : '') + '>' + label + '</button>';
+  }
+  function buttonsFor(st, online) {
+    if (!online) return '';
+    var h = '';
+    if (st.overlay === 'brb') return b('✅ חזרתי, סגירת ההודעה', 'brb_off', 'gold wide big');
+    if (st.overlay === 'qr' || st.overlay === 'gif') return b('סגירה', 'close', 'gold wide big');
+    var s = st.screen;
+    if (s === 'screen-welcome' || s === 'screen-ready') h += b('התחילו לצלם', 'start', 'gold wide big');
+    else if (s === 'screen-camera') { h += b(st.capturing ? 'מצלם…' : '📸 צלם', 'shoot', 'gold wide big', st.capturing); h += b('חזרה', 'back', 'wide'); }
+    else if (s === 'screen-result') {
+      h += b('📸 צילום נוסף', 'retake', 'wide big');
+      h += b('🌓 שחור-לבן', 'bw', st.bw ? 'on' : '');
+      h += b('🖨️ הדפסה', 'print', 'gold');
+      h += '<div id="copies"><button data-cmd="copies_minus">−</button><span>' + (Number(st.copies) | 0) + '</span><button data-cmd="copies_plus">+</button><span style="font-size:14px;color:var(--muted)">עותקים</span></div>';
+      h += b('QR לטלפון', 'qr'); h += b('GIF', 'gif');
+      h += b('חזרה למסך הפתיחה', 'back', 'wide');
+    }
+    h += b('🚻 תכף נשוב', 'brb_on', 'wide');
+    return h;
+  }
+  function render() {
+    if (!secret) {
+      $('dot').className = '';
+      $('statusText').textContent = 'אין קישור שמור';
+      $('screenName').textContent = 'סרקו שוב את ה-QR מההגדרות באייפד (📱 שליטה מהטלפון)';
+      $('buttons').innerHTML = ''; $('preview').style.display = 'none';
+      return;
+    }
+    var online = !!state && Date.now() - stateAt < 9000;
+    var st = state || {};
+    $('dot').className = online ? 'ok' : '';
+    var txt = online ? 'האייפד מחובר' : (connected ? 'מחפש את האייפד…' : 'מתחבר…');
+    if (online && st.event) txt += ' | ' + st.event;
+    if (online && st.count != null) txt += ' | ' + st.count + ' תמונות';
+    $('statusText').textContent = txt;
+    var showImg = online && (st.screen === 'screen-camera' || st.screen === 'screen-result') && !st.overlay;
+    $('preview').style.display = showImg ? 'block' : 'none';
+    $('screenName').textContent = !online ? 'בדקו שהאייפד פתוח על האפליקציה ושיש לו אינטרנט' : (st.overlay === 'brb' ? 'מסך "תכף נשוב" מוצג' : (showImg ? '' : (NAMES[st.screen] || '')));
+    var sig = JSON.stringify([online, st.screen, st.overlay, st.capturing, st.bw, st.copies]);
+    if (sig !== lastSig) { lastSig = sig; $('buttons').innerHTML = buttonsFor(st, online); }
+  }
+  $('buttons').addEventListener('click', function (e) {
+    var t = e.target.closest ? e.target.closest('button[data-cmd]') : null;
+    if (t) send(t.getAttribute('data-cmd'), t);
+  });
+
+  function sha256hex(text) {
+    return crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)).then(hex);
+  }
+  function start(password) {
+    return seedFrom(password).then(derive).then(function (c) {
+      ctx = c;
+      $('login').style.display = 'none';
+      $('app').style.display = 'flex';
+      connect();
+      // Tells the iPad a phone is watching, so it starts sending the live picture.
+      setInterval(function () { publish('w', new Uint8Array([1])); }, 3000);
+      setInterval(render, 2000);
+      document.addEventListener('visibilitychange', function () { if (!document.hidden && ctx && !client) connect(); });
+      render();
+    });
+  }
+  function tryLogin() {
+    var v = $('pw').value;
+    if (!v) return;
+    sha256hex(v).then(function (h) {
+      if (h !== PASSWORD_HASH) { $('loginErr').textContent = 'סיסמה שגויה'; $('pw').value = ''; return; }
+      $('pw').value = '';
+      return start(v);
+    });
+  }
+  $('enter').addEventListener('click', tryLogin);
+  $('pw').addEventListener('keydown', function (e) { if (e.key === 'Enter') tryLogin(); });
+  if (secret) { $('login').style.display = 'flex'; }
+  else { $('app').style.display = 'flex'; render(); }
+})();
+</script>
+</body>
+</html>
