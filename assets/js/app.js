@@ -173,7 +173,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260921o';
+  var APP_VERSION = '20260921r';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -4253,6 +4253,10 @@
   var remoteRx = 0;
   var remoteJunkAt = 0;
   var remoteFullAt = 0;
+  var remoteErr = '';
+  var remoteSnaps = 0;
+  var remoteSnapBytes = 0;
+  var remotePhoneGz = true;
   var remoteSeenPruneAt = 0;
   var remoteJunkCount = 0;
   var remoteRej = '';
@@ -4318,7 +4322,7 @@
   }
   // Snapshots are gzipped when the browser can (first byte: 1 = gzip, 0 = plain).
   function remotePack(bytes) {
-    if (typeof CompressionStream === 'undefined') {
+    if (typeof CompressionStream === 'undefined' || !remotePhoneGz) {
       var plain = new Uint8Array(bytes.length + 1);
       plain.set(bytes, 1);
       return Promise.resolve(plain);
@@ -4371,6 +4375,9 @@
       version: APP_VERSION,
       rx: remoteRx,
       rej: remoteRej,
+      err: remoteErr,
+      snaps: remoteSnaps,
+      snapKB: Math.round(remoteSnapBytes / 1024),
       broker: remoteUpConns().map(function (x) { return x.url.replace(/^wss:\/\//, '').replace(/[:\/].*$/, ''); }).join('+')
     };
   }
@@ -4458,22 +4465,30 @@
     remoteQueueImage(jobs, key, 'image/jpeg', function () { return new Promise(function (res) { c.toBlob(res, 'image/jpeg', 0.6); }); });
     return key;
   }
+  var remoteBgProbes = {};
   function remoteStyleUrls(jobs, o, c) {
     var st = o.getAttribute('style') || '';
     if (st.indexOf('url(') < 0) return;
     var changed = st.replace(/url\((['"]?)(blob:[^'")]+|data:[^'")]+)\1\)/g, function (m, q, u) {
-      var probe = new Image();
-      probe.src = u;
+      // A background picture set through the style: loaded once here (kept by address), then sent by key.
+      var uk = remoteHash(u);
+      var probe = remoteBgProbes[uk];
+      if (!probe) {
+        probe = new Image();
+        probe.onload = function () { remoteSnapSoon(50); };
+        probe.src = u;
+        remoteBgProbes[uk] = probe;
+      }
       if (!probe.complete || !probe.naturalWidth) return 'none';
-      var key = remoteImgKey(remoteHash(u) + '|bg');
-      var w = Math.min(probe.naturalWidth, 480);
+      var key = remoteImgKey(uk + '|bg');
+      var w = Math.min(probe.naturalWidth, 960);
       var h = Math.round(w * probe.naturalHeight / probe.naturalWidth);
       remoteQueueImage(jobs, key, 'image/jpeg', function () {
         var cv = document.createElement('canvas');
         cv.width = w;
         cv.height = h;
         cv.getContext('2d').drawImage(probe, 0, 0, w, h);
-        return new Promise(function (res) { cv.toBlob(res, 'image/jpeg', 0.7); });
+        return new Promise(function (res) { cv.toBlob(res, 'image/jpeg', 0.75); });
       });
       return 'url(m4u:' + key + ')';
     });
@@ -4571,8 +4586,10 @@
       hash = remoteHash(JSON.stringify(snapObj));
       snapObj.seq = seq;
       json = JSON.stringify(snapObj);
-    } catch (e) { remoteSnapBusy = false; return; }
-    Promise.all(jobs.map(function (j) { return j(); })).then(function (imgs) {
+    } catch (e) { remoteSnapBusy = false; remoteErr = 'snapshot: ' + (e && e.message || e); return; }
+    // Pictures are made and sent alongside; the screen itself never waits for a slow one.
+    var withLimit = function (p, ms) { return Promise.race([p, new Promise(function (res) { setTimeout(function () { res(null); }, ms); })]); };
+    var picsDone = Promise.all(jobs.map(function (j) { return withLimit(j(), 4000); })).then(function (imgs) {
       var sends = [];
       imgs.forEach(function (im) {
         if (!im) return;
@@ -4586,12 +4603,16 @@
         sends.push(remotePublish('i', out, false));
       });
       return Promise.all(sends);
-    }).then(function () {
+    }).catch(function (e) { remoteErr = 'pictures: ' + (e && e.message || e); });
+    withLimit(picsDone, 1200).then(function () {
       if (hash === remoteSnapHash) return;
-      return remotePack(new TextEncoder().encode(json)).then(function (packed) { return remotePublish('d', packed, true); }).then(function (ok) {
-        if (ok) remoteSnapHash = hash;
+      return remotePack(new TextEncoder().encode(json)).then(function (packed) {
+        remoteSnapBytes = packed.length;
+        return remotePublish('d', packed, true);
+      }).then(function (ok) {
+        if (ok) { remoteSnapHash = hash; remoteSnaps++; }
       });
-    }).catch(function () {}).then(function () {
+    }).catch(function (e) { remoteErr = 'send: ' + (e && e.message || e); }).then(function () {
       remoteSnapBusy = false;
       if (remoteSnapAgain) { remoteSnapAgain = false; remoteSnapSoon(60); }
     });
@@ -4735,6 +4756,7 @@
       }
       if (kind === 'w') {
         if (msg.id) { if (remoteSeen[msg.id]) return; remoteSeen[msg.id] = now; }
+        if (msg.gz === 0) remotePhoneGz = false;
         var first = !remoteWatching() || now - rec.watchAt >= 8000;
         rec.watchAt = now;
         if ((msg.full || first) && now - remoteFullAt > 2000) { remoteFullAt = now; remoteImgSent = {}; remoteSnapHash = ''; remoteSnapSoon(0); }
