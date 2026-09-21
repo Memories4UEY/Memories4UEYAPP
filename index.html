@@ -22,7 +22,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="assets/css/style.css?v=20260921f">
+<link rel="stylesheet" href="assets/css/style.css?v=20260921o">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Dancing+Script:wght@600&family=Playfair+Display:ital@1&family=Amatic+SC:wght@700&family=Caveat:wght@600&family=Cormorant+Garamond:ital@1&family=Suez+One&family=Frank+Ruhl+Libre:ital,wght@0,500;1,500&family=Bellefair&family=Miriam+Libre:wght@700&family=Secular+One&family=Heebo:wght@700&family=David+Libre:wght@700&family=Alex+Brush&family=Allura&family=Parisienne&family=Tangerine:wght@700&family=Pinyon+Script&family=Mrs+Saint+Delafield&family=Sacramento&family=Yellowtail&display=swap">
 <style>
   html, body {
@@ -353,6 +353,7 @@
     padding: 20px;
   }
   .modal-overlay.active { display: flex; }
+  #confirm-modal { z-index: 60; }
   .modal-box {
     background: var(--color-surface);
     border: 1px solid var(--color-border);
@@ -1289,6 +1290,17 @@
 </div>
 
 <!-- ============ RESET-TO-DEFAULT CONFIRMATION MODAL ============ -->
+<div class="modal-overlay" id="confirm-modal">
+  <div class="modal-box">
+    <h2 id="confirm-title">אישור</h2>
+    <label class="settings-label" id="confirm-text"></label>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="confirm-cancel">ביטול</button>
+      <button class="btn" id="confirm-ok">אישור</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="reset-confirm-modal">
   <div class="modal-box">
     <h2>איפוס לברירת מחדל</h2>
@@ -1619,6 +1631,6 @@
 <script src="assets/js/qrcode-generator.js"></script>
 <script src="assets/js/gifenc.js"></script>
 <script src="assets/js/mqtt.min.js?v=1"></script>
-<script src="assets/js/app.js?v=20260921f"></script>
+<script src="assets/js/app.js?v=20260921o"></script>
 </body>
 </html>

@@ -95,6 +95,7 @@
   // ---------- Lock screen ----------
   if (sessionStorage.getItem(UNLOCK_KEY) === '1') {
     showScreen('screen-welcome');
+    setTimeout(function () { primeCameraPermission(); }, 1500);
   }
   $('lock-form').addEventListener('submit', function (e) {
     e.preventDefault();
@@ -103,6 +104,7 @@
       if (hex === PASSWORD_HASH) {
         adminPasswordMemory = val;
         sessionStorage.setItem(UNLOCK_KEY, '1');
+        primeCameraPermission();
         $('lock-error').textContent = '';
         showScreen('screen-welcome');
       } else {
@@ -125,14 +127,7 @@
   // its own follow-up (e.g. the "no event loaded" prompt wants settings
   // to actually open, not just land on the welcome screen and stop).
   var adminModalOnSuccess = null;
-  // Set only while a command from the staff phone is being carried out: the
-  // phone already proved the password to the bridge, so no prompt is needed.
-  var remoteAdminOK = false;
   function openAdminModal(onSuccess) {
-    if (remoteAdminOK) {
-      (onSuccess || function () { showScreen('screen-welcome'); })();
-      return;
-    }
     adminModalOnSuccess = onSuccess || function () { showScreen('screen-welcome'); };
     $('admin-password-input').value = '';
     $('admin-password-error').textContent = '';
@@ -178,7 +173,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260921f';
+  var APP_VERSION = '20260921o';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -942,6 +937,18 @@
   var stream = null;
   var countingDown = false;
 
+  var cameraAskAt = 0;
+  // iOS asks for camera permission once per app launch and only on the iPad
+  // itself - a phone can't tap it. Asking right after unlocking (staff is at
+  // the iPad then) means a later remote "start" never hits the prompt.
+  var cameraPrimed = false;
+  function primeCameraPermission() {
+    if (cameraPrimed || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+    cameraPrimed = true;
+    navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'user' } } }).then(function (s) {
+      s.getTracks().forEach(function (tr) { tr.stop(); });
+    }).catch(function () {});
+  }
   function startCamera() {
     $('cam-error').style.display = 'none';
     if (stream) {
@@ -952,6 +959,7 @@
       video.play().catch(function () {});
       return;
     }
+    cameraAskAt = Date.now();
     navigator.mediaDevices.getUserMedia({
       audio: false,
       video: {
@@ -969,6 +977,7 @@
         height: { ideal: 4000 }
       }
     }).then(function (s) {
+      cameraAskAt = 0;
       stream = s;
       video.srcObject = s;
       video.play().catch(function () {});
@@ -983,6 +992,7 @@
         });
       });
     }).catch(function (err) {
+      cameraAskAt = 0;
       $('cam-error').style.display = 'flex';
       $('cam-error').innerHTML = '<div>לא ניתן לגשת למצלמה.</div><div style="font-size:13px">ודאו שהאתר נפתח ב-Safari או Chrome, ושניתנה הרשאת מצלמה (הגדרות ← Safari ← מצלמה).</div>';
     });
@@ -3066,24 +3076,47 @@
     gallerySelectedIds = {};
     renderGalleryGrid();
   });
+  // An on-page confirmation instead of the system confirm(): a system dialog is
+  // drawn by iOS itself, so the staff phone mirroring this screen could never see
+  // or answer it.
+  var confirmYes = null;
+  function askConfirm(title, text, okLabel, onYes) {
+    $('confirm-title').textContent = title;
+    $('confirm-text').textContent = text;
+    $('confirm-ok').textContent = okLabel || 'אישור';
+    confirmYes = onYes;
+    $('confirm-modal').classList.add('active');
+  }
+  $('confirm-cancel').addEventListener('click', function () {
+    $('confirm-modal').classList.remove('active');
+    confirmYes = null;
+  });
+  $('confirm-ok').addEventListener('click', function () {
+    $('confirm-modal').classList.remove('active');
+    var f = confirmYes;
+    confirmYes = null;
+    if (f) f();
+  });
   $('gallery-delete-all-btn').addEventListener('click', function () {
     dbAllForActiveEvent().then(function (rows) {
       if (!rows.length) { toast('אין תמונות למחוק'); return; }
-      if (!confirm('להעביר את כל ' + rows.length + ' התמונות של האירוע הזה לסל המחזור? אפשר לשחזר אותן משם.')) return;
-      moveToTrash(rows.map(function (row) { return row.id; })).then(function () {
-        toast('כל התמונות הועברו לסל המחזור');
-        renderGalleryGrid();
+      askConfirm('העברה לסל המחזור', 'להעביר את כל ' + rows.length + ' התמונות של האירוע הזה לסל המחזור? אפשר לשחזר אותן משם.', 'כן, העבר', function () {
+        moveToTrash(rows.map(function (row) { return row.id; })).then(function () {
+          toast('כל התמונות הועברו לסל המחזור');
+          renderGalleryGrid();
+        });
       });
     });
   });
   $('gallery-delete-selected-btn').addEventListener('click', function () {
     var ids = Object.keys(gallerySelectedIds);
     if (!ids.length) { toast('לא סימנתם תמונות'); return; }
-    if (!confirm(ids.length === 1 ? 'להעביר את התמונה שסומנה לסל המחזור? אפשר לשחזר אותה משם.' : 'להעביר ' + ids.length + ' תמונות שסומנו לסל המחזור? אפשר לשחזר אותן משם.')) return;
-    moveToTrash(ids.map(function (id) { return Number(id); })).then(function () {
-      gallerySelectedIds = {};
-      toast('התמונות שסומנו הועברו לסל המחזור');
-      renderGalleryGrid();
+    askConfirm('העברה לסל המחזור', ids.length === 1 ? 'להעביר את התמונה שסומנה לסל המחזור? אפשר לשחזר אותה משם.' : 'להעביר ' + ids.length + ' תמונות שסומנו לסל המחזור? אפשר לשחזר אותן משם.', 'כן, העבר', function () {
+      moveToTrash(ids.map(function (id) { return Number(id); })).then(function () {
+        gallerySelectedIds = {};
+        toast('התמונות שסומנו הועברו לסל המחזור');
+        renderGalleryGrid();
+      });
     });
   });
   // "Share" of the selected photos is now a PDF of just those photos, downloaded
@@ -3158,9 +3191,10 @@
   $('trash-viewer-delete').addEventListener('click', function () {
     var row = trashRowsNow[trashViewIndex];
     if (!row) return;
-    if (!confirm('למחוק את התמונה לצמיתות? אי אפשר לשחזר אותה אחרי זה.')) return;
-    closeTrashViewer();
-    deleteForever([row.id]).then(function () { toast('נמחקה לצמיתות'); renderTrash(); });
+    askConfirm('מחיקה לצמיתות', 'למחוק את התמונה לצמיתות? אי אפשר לשחזר אותה אחרי זה.', 'כן, מחק', function () {
+      closeTrashViewer();
+      deleteForever([row.id]).then(function () { toast('נמחקה לצמיתות'); renderTrash(); });
+    });
   });
   function renderTrash() {
     var grid = $('trash-grid');
@@ -3252,13 +3286,16 @@
   $('trash-delete-btn').addEventListener('click', function () {
     var ids = Object.keys(trashSelected).map(Number);
     if (!ids.length) { toast('לא סימנתם תמונות'); return; }
-    if (!confirm(ids.length === 1 ? 'למחוק את התמונה לצמיתות? אי אפשר לשחזר אותה אחרי זה.' : 'למחוק ' + ids.length + ' תמונות לצמיתות? אי אפשר לשחזר אותן אחרי זה.')) return;
-    deleteForever(ids).then(function () { toast('נמחקו לצמיתות'); renderTrash(); });
+    askConfirm('מחיקה לצמיתות', ids.length === 1 ? 'למחוק את התמונה לצמיתות? אי אפשר לשחזר אותה אחרי זה.' : 'למחוק ' + ids.length + ' תמונות לצמיתות? אי אפשר לשחזר אותן אחרי זה.', 'כן, מחק', function () {
+      deleteForever(ids).then(function () { toast('נמחקו לצמיתות'); renderTrash(); });
+    });
   });
   $('trash-empty-btn').addEventListener('click', function () {
     if (!trashRowsNow.length) { toast('סל המחזור כבר ריק'); return; }
-    if (!confirm(trashRowsNow.length === 1 ? 'לרוקן את סל המחזור? התמונה תימחק לצמיתות ולא יהיה אפשר לשחזר אותה.' : 'לרוקן את סל המחזור? ' + trashRowsNow.length + ' תמונות יימחקו לצמיתות ולא יהיה אפשר לשחזר אותן.')) return;
-    deleteForever(trashRowsNow.map(function (r) { return r.id; })).then(function () { toast('סל המחזור רוקן'); renderTrash(); });
+    var emptyIds = trashRowsNow.map(function (r) { return r.id; });
+    askConfirm('ריקון סל המחזור', trashRowsNow.length === 1 ? 'לרוקן את סל המחזור? התמונה תימחק לצמיתות ולא יהיה אפשר לשחזר אותה.' : 'לרוקן את סל המחזור? ' + trashRowsNow.length + ' תמונות יימחקו לצמיתות ולא יהיה אפשר לשחזר אותן.', 'כן, רוקן', function () {
+      deleteForever(emptyIds).then(function () { toast('סל המחזור רוקן'); renderTrash(); });
+    });
   });
 
   // ---------- Design editor ----------
@@ -4195,130 +4232,50 @@
   }
   $('export-all-btn').addEventListener('click', function () { exportEventPdf(getActiveEventName()); });
 
-  // ---------- Phone remote control ----------
-  // The staff phone (remote.html) and this iPad talk through a free public
-  // MQTT message broker - no server of ours, no accounts, no laptop. A random
-  // secret shown once as a QR code (never typed) decides both the private
-  // topic name and the AES key, so everything on the broker is unreadable
-  // and unusable to anyone without the QR. The iPad reports its state every
-  // few seconds; while a phone is watching it also sends a small live picture
-  // of the camera / current photo, and it carries out the phone's commands.
-  // Everything is silent - nothing here ever shows anything to a guest.
-  var remoteCount = null;
-  var remoteCountAt = 0;
-  var remoteLastScreen = '';
-  function activeScreenId() {
-    var s = document.querySelector('.screen.active');
-    return s ? s.id : '';
-  }
-  function remoteState() {
-    var now = Date.now();
-    var screenNow = activeScreenId();
-    if (now - remoteCountAt > 10000 || screenNow !== remoteLastScreen) {
-      remoteLastScreen = screenNow;
-      remoteCountAt = now;
-      dbAllForActiveEvent().then(function (rows) { remoteCount = rows.length; }).catch(function () {});
-    }
-    var overlay = '';
-    if ($('brb-overlay').classList.contains('active')) overlay = 'brb';
-    else if ($('qr-panel').classList.contains('active')) overlay = 'qr';
-    else if ($('gif-panel').classList.contains('active')) overlay = 'gif';
-    else if ($('admin-modal').classList.contains('active')) overlay = 'admin';
-    else if ($('settings-panel').classList.contains('active')) overlay = 'settings';
-    return {
-      screen: activeScreenId(),
-      overlay: overlay,
-      capturing: !!countingDown,
-      mode: captureMode,
-      copies: printCopies,
-      bw: !!isBw,
-      event: getActiveEventName(),
-      count: remoteCount,
-      version: APP_VERSION
-    };
-  }
-  function remoteFrame(cb) {
-    var s = activeScreenId();
-    var src = s === 'screen-camera' ? $('video') : (s === 'screen-result' ? $('result-canvas-view') : null);
-    var sw = src && (src.videoWidth || src.naturalWidth);
-    var sh = src && (src.videoHeight || src.naturalHeight);
-    if (!sw || !sh) { cb(null); return; }
-    var sx = 0, sy = 0, cw = sw, ch = sh, mirror = false;
-    if (src === $('video')) {
-      // Same crop and mirroring the iPad screen shows (object-fit: cover, selfie flip).
-      var boxW = src.clientWidth, boxH = src.clientHeight;
-      if (boxW && boxH) {
-        if (sw / sh > boxW / boxH) { cw = sh * boxW / boxH; sx = (sw - cw) / 2; }
-        else { ch = sw * boxH / boxW; sy = (sh - ch) / 2; }
-      }
-      mirror = true;
-    }
-    var scale = Math.min(1, 480 / cw, 720 / ch);
-    var c = document.createElement('canvas');
-    c.width = Math.max(1, Math.round(cw * scale));
-    c.height = Math.max(1, Math.round(ch * scale));
-    var ctx = c.getContext('2d');
-    if (mirror) { ctx.translate(c.width, 0); ctx.scale(-1, 1); }
-    try { ctx.drawImage(src, sx, sy, cw, ch, 0, 0, c.width, c.height); } catch (e) { cb(null); return; }
-    c.toBlob(function (b) { cb(b); }, 'image/jpeg', 0.6);
-  }
-  function remoteClick(id) {
-    var b = $(id);
-    if (b && !b.disabled) b.click();
-  }
-  var REMOTE_COMMANDS = {
-    start: function (s) {
-      if (s === 'screen-welcome') remoteClick('welcome-start-btn');
-      else if (s === 'screen-ready') remoteClick('ready-start-btn');
-    },
-    shoot: function (s) { if (s === 'screen-camera') remoteClick('shutter-btn'); },
-    retake: function (s) { if (s === 'screen-result') remoteClick('btn-retake'); },
-    bw: function (s) { if (s === 'screen-result') remoteClick('btn-bw'); },
-    print: function (s) { if (s === 'screen-result') remoteClick('btn-print'); },
-    copies_plus: function (s) { if (s === 'screen-result') remoteClick('copies-plus'); },
-    copies_minus: function (s) { if (s === 'screen-result') remoteClick('copies-minus'); },
-    qr: function (s) { if (s === 'screen-result') remoteClick('btn-qr'); },
-    gif: function (s) { if (s === 'screen-result') remoteClick('btn-gif'); },
-    close: function () {
-      if ($('qr-panel').classList.contains('active')) remoteClick('qr-close-btn');
-      else if ($('gif-panel').classList.contains('active')) remoteClick('gif-close-btn');
-    },
-    close_settings: function () { remoteClick('settings-close-btn'); },
-    close_admin: function () { remoteClick('admin-modal-cancel'); },
-    back: function (s) {
-      if (s === 'screen-result') remoteClick('result-back-btn');
-      else if (s === 'screen-camera') remoteClick('camera-admin-btn');
-    },
-    brb_on: function () {
-      $('settings-panel').classList.remove('active');
-      setBrbActive(true);
-    },
-    brb_off: function () {
-      if (!$('brb-overlay').classList.contains('active')) return;
-      setBrbActive(false);
-      showScreen('screen-welcome');
-    }
-  };
-  function runRemoteCommand(cmd) {
-    var fn = REMOTE_COMMANDS[cmd];
-    if (!fn) return;
-    remoteAdminOK = true;
-    try { fn(activeScreenId()); } finally { remoteAdminOK = false; }
-  }
+  // ---------- Phone remote control (live mirror) ----------
+  // The staff phone (remote.html) shows an exact copy of this screen and every
+  // tap on it is replayed here as a real tap. They talk through a free public
+  // MQTT broker - no server of ours, no accounts, no laptop, any network. A
+  // random secret (shown once as a QR, never typed) plus the settings password
+  // decide the private topic name and the AES key, so everything on the broker
+  // is unreadable and unusable without both. All of it runs ONLY while a phone
+  // is watching, and nothing here ever shows anything to a guest.
   var REMOTE_SECRET_KEY = 'm4u_remote_secret';
   var REMOTE_SEED_KEY = 'm4u_remote_seed';
   var REMOTE_BROKERS = ['wss://broker.hivemq.com:8884/mqtt', 'wss://test.mosquitto.org:8081', 'wss://broker.emqx.io:8084/mqtt'];
   var REMOTE_CMD_MAX_AGE_MS = 20000;
-  var remoteCtx = null;      // {topic, key} derived from the secret
-  var remoteClient = null;
-  var remoteConnected = false;
-  var remoteBrokerIdx = 0;
-  var remoteWatchAt = 0;
+  var remoteCtx = null;      // {topic, key} derived from the secret + password
+  // One quiet connection to EACH broker: the phone may only be able to reach one of them,
+  // so the iPad is reachable on all and sends its screen only where a phone is watching.
+  var remoteConns = {};    // broker url -> {c, up, watchAt}
+  var remoteFails = {};    // broker url -> consecutive failed attempts (retry slows down)
   var remoteSeen = {};
-  var remoteAck = '';
   var remoteRx = 0;
+  var remoteJunkAt = 0;
+  var remoteFullAt = 0;
+  var remoteSeenPruneAt = 0;
+  var remoteJunkCount = 0;
   var remoteRej = '';
-  var remoteSending = false;
+  var remoteCount = null;
+  var remoteCountAt = 0;
+  var remoteLastStateAt = 0;
+  var remoteLastFrameAt = 0;
+  var remoteFrameBusy = false;
+  var remoteSnapBusy = false;
+  var remoteSnapAgain = false;
+  var remoteSnapTimer = null;
+  var remoteSnapHash = '';
+  var remoteSnapAt = 0;
+  var remoteImgSent = {};
+  var remoteImgMap = {};
+  var remoteImgSeq = 0;
+  var remoteSid = Math.random().toString(16).slice(2, 8);
+  var remoteSeq = 0;
+  var remoteProbe = null;
+  function activeScreenId() {
+    var s = document.querySelector('.screen.active');
+    return s ? s.id : '';
+  }
   function remoteSecret() { return localStorage.getItem(REMOTE_SECRET_KEY) || ''; }
   function remoteHex(buf) {
     return Array.prototype.map.call(new Uint8Array(buf), function (b) { return b.toString(16).padStart(2, '0'); }).join('');
@@ -4342,105 +4299,534 @@
       });
     });
   }
-  function remoteSeal(bytes) {
+  // The channel letter is bound into every message (AES-GCM additional data), so
+  // a captured message can't be replayed onto a different channel.
+  function remoteSeal(kind, bytes) {
     var iv = crypto.getRandomValues(new Uint8Array(12));
-    return crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, remoteCtx.key, bytes).then(function (ct) {
+    return crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv, additionalData: new TextEncoder().encode(kind) }, remoteCtx.key, bytes).then(function (ct) {
       var out = new Uint8Array(12 + ct.byteLength);
       out.set(iv, 0);
       out.set(new Uint8Array(ct), 12);
       return out;
     });
   }
-  function remoteOpen(buf) {
+  function remoteOpen(kind, buf) {
     var u = new Uint8Array(buf);
-    return crypto.subtle.decrypt({ name: 'AES-GCM', iv: u.slice(0, 12) }, remoteCtx.key, u.slice(12)).then(function (pt) {
+    return crypto.subtle.decrypt({ name: 'AES-GCM', iv: u.slice(0, 12), additionalData: new TextEncoder().encode(kind) }, remoteCtx.key, u.slice(12)).then(function (pt) {
       return new Uint8Array(pt);
     });
   }
-  function remoteHandle(topic, payload) {
+  // Snapshots are gzipped when the browser can (first byte: 1 = gzip, 0 = plain).
+  function remotePack(bytes) {
+    if (typeof CompressionStream === 'undefined') {
+      var plain = new Uint8Array(bytes.length + 1);
+      plain.set(bytes, 1);
+      return Promise.resolve(plain);
+    }
+    var cs = new CompressionStream('gzip');
+    var w = cs.writable.getWriter();
+    w.write(bytes);
+    w.close();
+    return new Response(cs.readable).arrayBuffer().then(function (ab) {
+      var u = new Uint8Array(ab);
+      var out = new Uint8Array(u.length + 1);
+      out[0] = 1;
+      out.set(u, 1);
+      return out;
+    });
+  }
+  function remoteUpConns() {
+    return Object.keys(remoteConns).map(function (u) { return remoteConns[u]; }).filter(function (x) { return x.up; });
+  }
+  function remoteUp() { return remoteUpConns().length > 0; }
+  function remoteWatchedConns() {
+    var now = Date.now();
+    return remoteUpConns().filter(function (x) { return now - x.watchAt < 8000; });
+  }
+  function remoteWatching() { return remoteWatchedConns().length > 0; }
+
+  // ---- what the phone is told about the screen ----
+  function remoteInsets() {
+    if (!remoteProbe) {
+      remoteProbe = document.createElement('div');
+      remoteProbe.setAttribute('data-m4u-skip', '1');
+      remoteProbe.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)';
+      document.body.appendChild(remoteProbe);
+    }
+    var cs = getComputedStyle(remoteProbe);
+    return { top: parseFloat(cs.paddingTop) || 0, right: parseFloat(cs.paddingRight) || 0, bottom: parseFloat(cs.paddingBottom) || 0, left: parseFloat(cs.paddingLeft) || 0 };
+  }
+  function remoteState() {
+    var now = Date.now();
+    if (remoteWatching() && now - remoteCountAt > 30000) {
+      remoteCountAt = now;
+      dbAllForActiveEvent().then(function (rows) { remoteCount = rows.length; }).catch(function () {});
+    }
+    return {
+      ts: now,
+      screen: activeScreenId(),
+      camWait: !!cameraAskAt && now - cameraAskAt > 1500,
+      event: getActiveEventName(),
+      count: remoteCount,
+      version: APP_VERSION,
+      rx: remoteRx,
+      rej: remoteRej,
+      broker: remoteUpConns().map(function (x) { return x.url.replace(/^wss:\/\//, '').replace(/[:\/].*$/, ''); }).join('+')
+    };
+  }
+  function remoteHash(str) {
+    var h = 5381;
+    for (var i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0;
+    return h + ':' + str.length;
+  }
+  function remoteImgKey(id) {
+    if (!remoteImgMap[id]) {
+      if (remoteImgSeq > 4000) { remoteImgMap = {}; remoteImgSent = {}; remoteSid = Math.random().toString(16).slice(2, 8); remoteImgSeq = 0; }
+      remoteImgMap[id] = remoteSid + '_' + (++remoteImgSeq);
+    }
+    return remoteImgMap[id];
+  }
+  function remoteQueueImage(jobs, key, mime, makeBlob) {
+    if (remoteImgSent[key]) return;
+    remoteImgSent[key] = true;
+    jobs.push(function () {
+      return makeBlob().then(function (blob) {
+        if (!blob) return null;
+        return new Response(blob).arrayBuffer().then(function (ab) { return { key: key, mime: mime, bytes: new Uint8Array(ab) }; });
+      }).catch(function () { return null; });
+    });
+  }
+  // A picture the phone can't fetch itself (blob:/data: sources): shrink to
+  // about the size it is shown at and send it once, by key.
+  function remoteBucket(w) {
+    var b = [120, 240, 480, 960, 1500];
+    for (var i = 0; i < b.length; i++) if (w <= b[i]) return b[i];
+    return 1500;
+  }
+  // The app hands out fresh blob addresses whenever it redraws a grid, so a picture is
+  // recognised by what it looks like (a 32x32 fingerprint), not by its address.
+  var remoteContentCache = {};
+  var remoteContentCount = 0;
+  function remoteContentKey(el, srcKey) {
+    if (remoteContentCache[srcKey]) return remoteContentCache[srcKey];
+    var c = document.createElement('canvas');
+    c.width = 32;
+    c.height = 32;
+    var x = c.getContext('2d');
+    var k;
+    try {
+      x.drawImage(el, 0, 0, 32, 32);
+      k = remoteHash(String.fromCharCode.apply(null, Array.prototype.slice.call(x.getImageData(0, 0, 32, 32).data))) + '_' + el.naturalWidth + 'x' + el.naturalHeight;
+    } catch (e) { k = remoteHash(srcKey); }
+    if (++remoteContentCount > 3000) { remoteContentCache = {}; remoteContentCount = 0; }
+    remoteContentCache[srcKey] = k;
+    return k;
+  }
+  function remoteBlobImage(jobs, el, srcKey) {
+    var rect = el.getBoundingClientRect();
+    if (!el.naturalWidth || !rect.width || rect.bottom < -300 || rect.top > innerHeight + 300 || rect.right < -300 || rect.left > innerWidth + 300) return null;
+    var isGif = el.id === 'gif-view';
+    var tw = Math.max(16, Math.min(el.naturalWidth, remoteBucket(Math.ceil(rect.width * 1.25))));
+    var th = Math.max(16, Math.round(tw * el.naturalHeight / el.naturalWidth));
+    var key = remoteImgKey(remoteContentKey(el, srcKey) + '|' + tw + (isGif ? 'g' : ''));
+    var png = /^data:image\/png/.test(srcKey);
+    var toJpeg = function () {
+      var c = document.createElement('canvas');
+      c.width = tw;
+      c.height = th;
+      c.getContext('2d').drawImage(el, 0, 0, tw, th);
+      return new Promise(function (res) { c.toBlob(res, png ? 'image/png' : 'image/jpeg', 0.72); });
+    };
+    remoteQueueImage(jobs, key, isGif ? 'image/gif' : (png ? 'image/png' : 'image/jpeg'), function () {
+      if (!isGif) return toJpeg();
+      // A GIF goes as-is unless it is too big for a message; then a still frame.
+      return fetch(srcKey).then(function (r) { return r.blob(); }).then(function (b) { return b.size <= 400000 ? b : toJpeg(); });
+    });
+    return key;
+  }
+  function remoteCanvasImage(jobs, cv) {
+    var rect = cv.getBoundingClientRect();
+    if (!cv.width || !rect.width || !rect.height) return null;
+    var tw = Math.max(16, Math.min(cv.width, Math.ceil(rect.width * 1.25), 900));
+    var th = Math.max(16, Math.round(tw * cv.height / cv.width));
+    var c = document.createElement('canvas');
+    c.width = tw;
+    c.height = th;
+    try { c.getContext('2d').drawImage(cv, 0, 0, tw, th); } catch (e) { return null; }
+    var url = c.toDataURL('image/jpeg', 0.6);
+    var key = 'c' + remoteHash(url).replace(':', '_');
+    remoteQueueImage(jobs, key, 'image/jpeg', function () { return new Promise(function (res) { c.toBlob(res, 'image/jpeg', 0.6); }); });
+    return key;
+  }
+  function remoteStyleUrls(jobs, o, c) {
+    var st = o.getAttribute('style') || '';
+    if (st.indexOf('url(') < 0) return;
+    var changed = st.replace(/url\((['"]?)(blob:[^'")]+|data:[^'")]+)\1\)/g, function (m, q, u) {
+      var probe = new Image();
+      probe.src = u;
+      if (!probe.complete || !probe.naturalWidth) return 'none';
+      var key = remoteImgKey(remoteHash(u) + '|bg');
+      var w = Math.min(probe.naturalWidth, 480);
+      var h = Math.round(w * probe.naturalHeight / probe.naturalWidth);
+      remoteQueueImage(jobs, key, 'image/jpeg', function () {
+        var cv = document.createElement('canvas');
+        cv.width = w;
+        cv.height = h;
+        cv.getContext('2d').drawImage(probe, 0, 0, w, h);
+        return new Promise(function (res) { cv.toBlob(res, 'image/jpeg', 0.7); });
+      });
+      return 'url(m4u:' + key + ')';
+    });
+    c.setAttribute('style', changed);
+  }
+  // Walks the live tree and its deep copy side by side, fixing up whatever a
+  // plain copy loses (pictures, canvases, the camera, typed values, scroll).
+  function remoteWalk(o, c, depth, jobs) {
+    var i;
+    for (i = o.children.length - 1; i >= 0; i--) {
+      var oc = o.children[i];
+      var cc = c.children[i];
+      if (!cc) continue;
+      var tag = oc.tagName;
+      if (tag === 'SCRIPT' || tag === 'NOSCRIPT' || tag === 'META' || tag === 'BASE' || tag === 'LINK' || tag === 'IFRAME' || tag === 'OBJECT' || tag === 'EMBED' || oc.hasAttribute('data-m4u-skip')) { cc.parentNode.removeChild(cc); continue; }
+      if (depth === 0 && getComputedStyle(oc).display === 'none') { cc.textContent = ''; continue; }
+      if (oc.style && oc.style.display === 'none') { cc.textContent = ''; continue; }
+      if (tag === 'VIDEO') {
+        var ph = remoteInert.createElement('img');
+        ph.id = oc.id;
+        ph.className = oc.className;
+        ph.setAttribute('data-m4u-video', '1');
+        if (oc.getAttribute('style')) ph.setAttribute('style', oc.getAttribute('style'));
+        cc.parentNode.replaceChild(ph, cc);
+        continue;
+      }
+      if (tag === 'CANVAS') {
+        var im = remoteInert.createElement('img');
+        if (getComputedStyle(oc).touchAction === 'none') im.setAttribute('data-m4u-drag', '1');
+        im.id = oc.id;
+        im.className = oc.className;
+        if (oc.getAttribute('style')) im.setAttribute('style', oc.getAttribute('style'));
+        var ck = remoteCanvasImage(jobs, oc);
+        if (ck) im.setAttribute('src', 'm4u:' + ck);
+        cc.parentNode.replaceChild(im, cc);
+        continue;
+      }
+      if (tag === 'IMG') {
+        var src = oc.currentSrc || oc.getAttribute('src') || '';
+        cc.removeAttribute('srcset');
+        if (/^(blob:|data:)/.test(src)) {
+          var bk = remoteBlobImage(jobs, oc, src);
+          if (bk) cc.setAttribute('src', 'm4u:' + bk); else cc.removeAttribute('src');
+        }
+      } else if (tag === 'INPUT') {
+        var type = (oc.type || 'text').toLowerCase();
+        if (type === 'password') cc.setAttribute('value', new Array(oc.value.length + 1).join('•'));
+        else if (type === 'checkbox' || type === 'radio') { if (oc.checked) cc.setAttribute('checked', ''); else cc.removeAttribute('checked'); }
+        else if (type !== 'file') cc.setAttribute('value', oc.value);
+      } else if (tag === 'TEXTAREA') {
+        cc.textContent = oc.value;
+      } else if (tag === 'SELECT') {
+        for (var k = 0; k < oc.options.length; k++) {
+          if (oc.options[k].selected) cc.options[k].setAttribute('selected', ''); else cc.options[k].removeAttribute('selected');
+        }
+      }
+      remoteStyleUrls(jobs, oc, cc);
+      if (oc.scrollTop > 0 || oc.scrollHeight > oc.clientHeight + 1) cc.setAttribute('data-m4u-st', String(Math.round(oc.scrollTop)));
+      if (oc.scrollLeft !== 0 || oc.scrollWidth > oc.clientWidth + 1) cc.setAttribute('data-m4u-sl', String(Math.round(oc.scrollLeft)));
+      if (oc === document.activeElement) cc.setAttribute('data-m4u-focus', '1');
+      if (tag === 'IMG' && oc.style.touchAction === 'none') cc.setAttribute('data-m4u-drag', '1');
+      if (oc.classList.contains('selecting')) cc.setAttribute('data-m4u-dragx', '1');
+      if (oc.children.length) remoteWalk(oc, cc, depth + 1, jobs);
+    }
+  }
+  // The copy is made in a document with no page behind it, so its pictures
+  // never try to load anything.
+  var remoteInert = document.implementation.createHTMLDocument('');
+  function remoteSnapshot(jobs) {
+    var body = document.body;
+    var clone = remoteInert.importNode(body, true);
+    remoteWalk(body, clone, 0, jobs);
+    return {
+      sid: remoteSid, seq: ++remoteSeq,
+      w: innerWidth, h: innerHeight,
+      ins: remoteInsets(),
+      htmlCls: document.documentElement.className,
+      htmlSt: document.documentElement.getAttribute('style') || '',
+      bodyCls: body.className,
+      bodySt: body.getAttribute('style') || '',
+      html: clone.innerHTML
+    };
+  }
+  function remoteSendSnapshot() {
+    if (!remoteWatching() || !remoteCtx) return;
+    if (remoteSnapBusy) { remoteSnapAgain = true; return; }
+    remoteSnapBusy = true;
+    remoteSnapAt = Date.now();
+    var jobs = [];
+    var json, hash;
+    try {
+      var snapObj = remoteSnapshot(jobs);
+      var seq = snapObj.seq;
+      snapObj.seq = 0;
+      hash = remoteHash(JSON.stringify(snapObj));
+      snapObj.seq = seq;
+      json = JSON.stringify(snapObj);
+    } catch (e) { remoteSnapBusy = false; return; }
+    Promise.all(jobs.map(function (j) { return j(); })).then(function (imgs) {
+      var sends = [];
+      imgs.forEach(function (im) {
+        if (!im) return;
+        var kb = new TextEncoder().encode(im.key);
+        var mimeCode = im.mime === 'image/png' ? 2 : (im.mime === 'image/gif' ? 3 : 1);
+        var out = new Uint8Array(2 + kb.length + im.bytes.length);
+        out[0] = mimeCode;
+        out[1] = kb.length;
+        out.set(kb, 2);
+        out.set(im.bytes, 2 + kb.length);
+        sends.push(remotePublish('i', out, false));
+      });
+      return Promise.all(sends);
+    }).then(function () {
+      if (hash === remoteSnapHash) return;
+      return remotePack(new TextEncoder().encode(json)).then(function (packed) { return remotePublish('d', packed, true); }).then(function (ok) {
+        if (ok) remoteSnapHash = hash;
+      });
+    }).catch(function () {}).then(function () {
+      remoteSnapBusy = false;
+      if (remoteSnapAgain) { remoteSnapAgain = false; remoteSnapSoon(60); }
+    });
+  }
+  function remoteSnapSoon(delay) {
+    if (remoteSnapTimer || !remoteWatching()) return;
+    var wait = Math.max(delay == null ? 120 : delay, 0);
+    remoteSnapTimer = setTimeout(function () { remoteSnapTimer = null; remoteSendSnapshot(); }, wait);
+  }
+  function remoteSendVideoFrame() {
+    var v = $('video');
+    if (!v || !v.videoWidth || remoteFrameBusy) return;
+    remoteFrameBusy = true;
+    var w = Math.min(v.videoWidth, 420);
+    var h = Math.round(w * v.videoHeight / v.videoWidth);
+    var c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    try { c.getContext('2d').drawImage(v, 0, 0, w, h); } catch (e) { remoteFrameBusy = false; return; }
+    c.toBlob(function (blob) {
+      if (!blob) { remoteFrameBusy = false; return; }
+      blob.arrayBuffer().then(function (ab) { return remotePublish('f', new Uint8Array(ab), false); }).catch(function () {}).then(function () { remoteFrameBusy = false; });
+    }, 'image/jpeg', 0.55);
+  }
+
+  // ---- what the phone can do here ----
+  function remoteFire(el, type, x, y, pointer) {
+    var opts = { bubbles: true, cancelable: true, clientX: x, clientY: y, view: window };
+    var ev;
+    if (pointer) {
+      opts.pointerId = 77;
+      opts.pointerType = 'touch';
+      opts.isPrimary = true;
+      opts.width = 1;
+      opts.height = 1;
+      ev = new PointerEvent(type, opts);
+    } else {
+      ev = new MouseEvent(type, opts);
+    }
+    el.dispatchEvent(ev);
+  }
+  function remoteFieldEvents(el) {
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  function remoteScroller(el) {
+    while (el && el !== document.body && el !== document.documentElement) {
+      var oy = getComputedStyle(el).overflowY;
+      if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 1) return el;
+      el = el.parentElement;
+    }
+    return null;
+  }
+  var remotePtr = {};   // pointer id -> element it started on (a phone finger held down)
+  var remotePtrAt = {};
+  function remoteEnter(f) {
+    var opts = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true };
+    var down = new KeyboardEvent('keydown', opts);
+    f.dispatchEvent(down);
+    if (!down.defaultPrevented && f.form && f.tagName === 'INPUT') {
+      if (typeof f.form.requestSubmit === 'function') f.form.requestSubmit();
+    }
+    f.dispatchEvent(new KeyboardEvent('keyup', opts));
+  }
+  function remoteExec(msg) {
+    var x = msg.x, y = msg.y;
+    var el = (x != null && y != null) ? document.elementFromPoint(x, y) : null;
+    var f;
+    if (msg.t === 'pd' || msg.t === 'pm' || msg.t === 'pu') {
+      // Raw finger events (drag a design layer, pan/zoom a photo, drag-select tiles).
+      var pid = 80 + (msg.pid || 0);
+      var target = msg.t === 'pd' ? el : remotePtr[pid];
+      if (!target) return;
+      if (msg.t === 'pd') { remotePtr[pid] = target; remotePtrAt[pid] = Date.now(); } else if (msg.t === 'pu') { delete remotePtr[pid]; delete remotePtrAt[pid]; } else remotePtrAt[pid] = Date.now();
+      var type = msg.t === 'pd' ? 'pointerdown' : (msg.t === 'pm' ? 'pointermove' : 'pointerup');
+      target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, view: window, pointerId: pid, pointerType: 'touch', isPrimary: !msg.pid, width: 1, height: 1, pressure: msg.t === 'pu' ? 0 : 0.5 }));
+      remoteSnapSoon(70);
+      return;
+    }
+    if (!el) return;
+    if (msg.t === 'tap') {
+      remoteFire(el, 'pointerdown', x, y, true);
+      remoteFire(el, 'mousedown', x, y, false);
+      remoteFire(el, 'pointerup', x, y, true);
+      remoteFire(el, 'mouseup', x, y, false);
+      remoteFire(el, 'click', x, y, false);
+    } else if (msg.t === 'scroll') {
+      var sc = remoteScroller(el);
+      if (sc) sc.scrollTop += msg.dy;
+    } else if (msg.t === 'text') {
+      f = el.closest('input,textarea');
+      if (f) {
+        f.value = String(msg.value == null ? '' : msg.value);
+        remoteFieldEvents(f);
+        if (msg.enter) remoteEnter(f);
+      }
+    } else if (msg.t === 'color') {
+      f = el.closest('input');
+      if (f) { f.value = msg.value; remoteFieldEvents(f); }
+    } else if (msg.t === 'select') {
+      f = el.closest('select');
+      if (f && msg.index >= 0 && msg.index < f.options.length) { f.selectedIndex = msg.index; remoteFieldEvents(f); }
+    } else if (msg.t === 'range') {
+      f = el.closest('input[type=range]');
+      if (f) {
+        var r = f.getBoundingClientRect();
+        // The knob can't leave the track, so the usable travel is a little shorter than the box.
+        var inset = 8;
+        var ratio = Math.min(1, Math.max(0, (x - r.left - inset) / Math.max(1, r.width - 2 * inset)));
+        if (getComputedStyle(f).direction === 'rtl') ratio = 1 - ratio;
+        var min = parseFloat(f.min || 0), max = parseFloat(f.max || 100), step = parseFloat(f.step || 1) || 1;
+        var v = Math.round((min + ratio * (max - min)) / step) * step;
+        f.value = Math.min(max, Math.max(min, v));
+        remoteFieldEvents(f);
+      }
+    }
+    remoteSnapSoon(70);
+  }
+  function remoteHandle(rec, topic, payload) {
     if (!remoteCtx) return;
     var kind = topic.slice(remoteCtx.topic.length + 1);
-    remoteOpen(payload).then(function (bytes) {
-      if (kind === 'w') { remoteWatchAt = Date.now(); return; }
-      if (kind !== 'c') return;
-      var msg = JSON.parse(new TextDecoder().decode(bytes));
+    if (kind !== 'c' && kind !== 'w') return;
+    // Anything else than a small sealed message is junk - don't spend time on it.
+    if (!payload || payload.length < 29 || payload.length > 4096) return;
+    var now0 = Date.now();
+    if (now0 - remoteJunkAt >= 1000) { remoteJunkAt = now0; remoteJunkCount = 0; }
+    if (remoteJunkCount > 40) return;   // a flood of undecryptable messages: stop spending time on it
+    remoteOpen(kind, payload).then(function (bytes) {
       var now = Date.now();
+      var msg = bytes.length > 1 ? JSON.parse(new TextDecoder().decode(bytes)) : {};
+      // Every message carries the sender's clock; stale ones (a replayed capture) are ignored.
+      if (!(Math.abs(now - msg.ts) <= REMOTE_CMD_MAX_AGE_MS)) {
+        remoteRej = 'old';
+        if (kind === 'w') remoteLastStateAt = 0;   // answer at once, so the phone learns this clock
+        return;
+      }
+      if (msg.probe) {
+        // A phone just connected here and wants to know if the iPad is on this broker: answer with the live state.
+        remoteLastStateAt = 0;
+        return;
+      }
+      if (kind === 'w') {
+        if (msg.id) { if (remoteSeen[msg.id]) return; remoteSeen[msg.id] = now; }
+        var first = !remoteWatching() || now - rec.watchAt >= 8000;
+        rec.watchAt = now;
+        if ((msg.full || first) && now - remoteFullAt > 2000) { remoteFullAt = now; remoteImgSent = {}; remoteSnapHash = ''; remoteSnapSoon(0); }
+        return;
+      }
       remoteRx++;
       if (!msg.id) { remoteRej = 'bad'; return; }
       if (remoteSeen[msg.id]) return;
-      if (Math.abs(now - msg.ts) > REMOTE_CMD_MAX_AGE_MS) { remoteRej = 'old ' + Math.round((now - msg.ts) / 1000) + 's'; return; }
       remoteSeen[msg.id] = now;
-      Object.keys(remoteSeen).forEach(function (k) { if (now - remoteSeen[k] > 60000) delete remoteSeen[k]; });
-      runRemoteCommand(msg.cmd);
-      remoteAck = msg.id;
-      remoteLastStateAt = 0;
-    }).catch(function () {});
+      if (now - remoteSeenPruneAt > 1000) {
+        remoteSeenPruneAt = now;
+        Object.keys(remoteSeen).forEach(function (k) { if (now - remoteSeen[k] > 60000) delete remoteSeen[k]; });
+      }
+      remoteExec(msg);
+    }).catch(function () { remoteJunkCount++; });
   }
   function remoteConnect() {
-    if (remoteClient || typeof mqtt === 'undefined' || !remoteCtx) return;
-    var url = REMOTE_BROKERS[remoteBrokerIdx % REMOTE_BROKERS.length];
-    var wasUp = false;
+    if (typeof mqtt === 'undefined' || !remoteCtx) return;
+    REMOTE_BROKERS.forEach(remoteOpenConn);
+  }
+  function remoteOpenConn(url) {
+    var ctxNow = remoteCtx;
+    if (remoteConns[url] || !ctxNow) return;
+    var failures = remoteFails[url] || 0;
     var c;
+    var rec = { url: url, c: null, up: false, wasUp: false, watchAt: 0, closing: false };
     try {
       c = mqtt.connect(url, {
         clientId: 'm4u-ipad-' + Math.random().toString(16).slice(2, 10),
         reconnectPeriod: 0, connectTimeout: 6000, keepalive: 20, clean: true
       });
-    } catch (e) { setTimeout(remoteConnect, 5000); return; }
-    remoteClient = c;
-    c.on('connect', function () {
-      wasUp = true;
-      remoteConnected = true;
-      c.subscribe([remoteCtx.topic + '/c', remoteCtx.topic + '/w'], function (err, granted) {
-        if (err || !granted || granted.some(function (g) { return g.qos === 128; })) gone();
-      });
-    });
-    c.on('message', function (topic, payload) { remoteHandle(topic, payload); });
+    } catch (e) { setTimeout(function () { remoteOpenConn(url); }, 8000); return; }
+    rec.c = c;
+    remoteConns[url] = rec;
     var ended = false;
     function gone() {
       if (ended) return;
       ended = true;
-      remoteConnected = false;
-      remoteClient = null;
+      if (remoteConns[url] === rec) delete remoteConns[url];
+      rec.up = false;
       try { c.end(true); } catch (e) {}
-      if (!wasUp) remoteBrokerIdx++;
-      setTimeout(remoteConnect, wasUp ? 2000 : 3000);
+      if (rec.closing || !remoteCtx || remoteCtx.topic !== ctxNow.topic) return;
+      remoteFails[url] = rec.wasUp ? 0 : Math.min(failures + 1, 6);
+      setTimeout(function () { if (remoteCtx && remoteCtx.topic === ctxNow.topic) remoteOpenConn(url); }, rec.wasUp ? 3000 : Math.min(30000, 4000 * (remoteFails[url] || 1)));
     }
+    c.on('connect', function () {
+      rec.up = true;
+      rec.wasUp = true;
+      remoteFails[url] = 0;
+      c.subscribe([ctxNow.topic + '/c', ctxNow.topic + '/w'], function (err, granted) {
+        if (err || !granted || granted.some(function (g) { return g.qos === 128; })) gone();
+      });
+    });
+    c.on('message', function (topic, payload) { remoteHandle(rec, topic, payload); });
     c.on('close', gone);
     c.on('error', gone);
   }
+  // The small live state goes everywhere; the screen, pictures and camera only where a phone is watching.
   function remotePublish(kind, bytes, retain) {
-    return remoteSeal(bytes).then(function (sealed) {
-      if (remoteClient && remoteConnected) remoteClient.publish(remoteCtx.topic + '/' + kind, sealed, { qos: 0, retain: !!retain });
+    var targets = kind === 's' ? remoteUpConns() : remoteWatchedConns();
+    if (!targets.length) return Promise.resolve(false);
+    return remoteSeal(kind, bytes).then(function (sealed) {
+      targets.forEach(function (x) {
+        try { x.c.publish(remoteCtx.topic + '/' + kind, sealed, { qos: 0, retain: !!retain }); } catch (e) {}
+      });
+      return true;
     });
   }
-  var remoteLastStateAt = 0;
   function remoteTick() {
-    setTimeout(remoteTick, 1000);
-    if (!remoteCtx || !remoteConnected || remoteSending || document.hidden) return;
+    setTimeout(remoteTick, remoteWatching() ? 250 : 1000);
+    if (!remoteCtx || !remoteUp() || document.hidden) return;
     var now = Date.now();
-    var watching = now - remoteWatchAt < 8000;
-    if (!watching && now - remoteLastStateAt < 3000) return;
-    remoteSending = true;
-    remoteLastStateAt = now;
-    var state = remoteState();
-    state.ts = now;
-    state.ack = remoteAck;
-    state.rx = remoteRx;
-    state.rej = remoteRej;
-    state.broker = REMOTE_BROKERS[remoteBrokerIdx % REMOTE_BROKERS.length].replace(/^wss:\/\//, '').replace(/[:\/].*$/, '');
-    remotePublish('s', new TextEncoder().encode(JSON.stringify(state)), true)
-      .then(function () {
-        if (!watching) return;
-        return new Promise(function (resolve) {
-          remoteFrame(function (blob) {
-            if (!blob) { resolve(); return; }
-            blob.arrayBuffer().then(function (ab) { return remotePublish('f', new Uint8Array(ab), false); }).then(resolve, resolve);
-          });
-        });
-      })
-      .catch(function () {})
-      .then(function () { remoteSending = false; });
+    var watching = remoteWatching();
+    if (now - remoteLastStateAt >= (watching ? 2000 : 6000)) {
+      remoteLastStateAt = now;
+      remotePublish('s', new TextEncoder().encode(JSON.stringify(remoteState())), true).catch(function () {});
+    }
+    // a finger the phone never lifted (lost message) is lifted here after a few seconds
+    Object.keys(remotePtr).forEach(function (pid) {
+      if (now - remotePtrAt[pid] > 3000) {
+        try { remotePtr[pid].dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, pointerId: Number(pid), pointerType: 'touch', isPrimary: Number(pid) === 80 })); } catch (e) {}
+        delete remotePtr[pid];
+        delete remotePtrAt[pid];
+      }
+    });
+    if (!watching) return;
+    if (activeScreenId() === 'screen-camera' && now - remoteLastFrameAt >= 250) {
+      remoteLastFrameAt = now;
+      remoteSendVideoFrame();
+    }
+    // Things that change without touching the page tree (drawn canvases, scrolling) are caught here.
+    if (now - remoteSnapAt >= 700) remoteSnapSoon(0);
   }
   function remoteStart() {
     var seed = localStorage.getItem(REMOTE_SEED_KEY) || '';
@@ -4449,14 +4835,25 @@
   }
   function remoteStop() {
     remoteCtx = null;
-    remoteConnected = false;
-    if (remoteClient) { try { remoteClient.end(true); } catch (e) {} remoteClient = null; }
+    Object.keys(remoteConns).forEach(function (u) {
+      var rec = remoteConns[u];
+      rec.closing = true;
+      rec.up = false;
+      try { rec.c.end(true); } catch (e) {}
+    });
+    remoteConns = {};
   }
+  if (typeof MutationObserver === 'function') {
+    new MutationObserver(function () { remoteSnapSoon(120); }).observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
+  }
+  document.addEventListener('scroll', function () { remoteSnapSoon(120); }, true);
+  document.addEventListener('input', function () { remoteSnapSoon(120); }, true);
+  window.addEventListener('resize', function () { remoteSnapSoon(120); });
   document.addEventListener('visibilitychange', function () {
-    if (!document.hidden && remoteCtx && !remoteClient) remoteConnect();
+    if (!document.hidden && remoteCtx) remoteConnect();
   });
-  setTimeout(remoteTick, 3000);
-  setTimeout(remoteStart, 2000);
+  setTimeout(remoteTick, 900);
+  setTimeout(remoteStart, 800);
   // Settings button: shows the phone's QR / link (creates the secret the first time).
   function remotePageUrl() {
     return location.href.replace(/[#?].*$/, '').replace(/[^\/]*$/, '') + 'remote.html#' + remoteSecret();
@@ -4467,7 +4864,7 @@
     qr.addData(url);
     qr.make();
     $('qr-render').innerHTML = qr.createSvgTag({ cellSize: 5, margin: 2 });
-    $('qr-status').textContent = 'סרקו עם הטלפון של המנהל, ואז הקלידו את סיסמת ההגדרות. אפשר גם לשלוח לעצמכם את הקישור.';
+    $('qr-status').textContent = 'סרקו עם הפלאפון של המנהל, ואז הקלידו את סיסמת ההגדרות. אפשר גם לשלוח לעצמכם את הקישור.';
     $('remote-link-text').textContent = url;
     $('remote-link-text').style.display = 'block';
     $('remote-reset-btn').style.display = '';
@@ -4477,15 +4874,23 @@
     var run = function () {
       var secret = remoteSecret();
       if (!secret || fresh) {
+        // Wipe what the old link left on the broker before it stops being ours.
+        if (fresh && remoteCtx) {
+          remoteUpConns().forEach(function (x) {
+            ['s', 'd'].forEach(function (k) { try { x.c.publish(remoteCtx.topic + '/' + k, '', { qos: 0, retain: true }); } catch (e) {} });
+          });
+        }
         var a = new Uint8Array(16);
         crypto.getRandomValues(a);
         secret = remoteHex(a);
         localStorage.setItem(REMOTE_SECRET_KEY, secret);
       }
       remoteSeedFrom(adminPasswordMemory, secret).then(function (seed) {
-        localStorage.setItem(REMOTE_SEED_KEY, seed);
-        remoteStop();
-        remoteStart();
+        if (seed !== localStorage.getItem(REMOTE_SEED_KEY) || !remoteCtx) {
+          localStorage.setItem(REMOTE_SEED_KEY, seed);
+          remoteStop();
+          remoteStart();
+        }
         // The settings panel sits above the QR panel, so it steps aside and returns after.
         remoteQrFromSettings = $('settings-panel').classList.contains('active') || remoteQrFromSettings;
         $('settings-panel').classList.remove('active');

@@ -2,55 +2,70 @@
 <html lang="he" dir="rtl">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="robots" content="noindex">
 <meta name="referrer" content="no-referrer">
-<title>שליטה מרחוק | Memories4U</title>
+<title>שליטה מהפלאפון | Memories4U</title>
 <style>
   :root { --bg:#0c0c0e; --surface:#18181c; --surface2:#222227; --gold:#d8bb72; --text:#f3eee1; --muted:#a9a18d; --ok:#5fcf80; --bad:#e0655a; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system, "Segoe UI", Arial, sans-serif; }
-  body { min-height:100vh; padding:calc(12px + env(safe-area-inset-top)) 14px calc(20px + env(safe-area-inset-bottom)); display:flex; flex-direction:column; align-items:center; gap:12px; }
-  h1 { font-size:17px; margin:2px 0 0; color:var(--gold); letter-spacing:.04em; }
-  #login { width:100%; max-width:460px; display:flex; flex-direction:column; align-items:center; gap:12px; }
-  input { width:100%; font-size:20px; padding:14px; border-radius:12px; border:1px solid #3a3a42; background:var(--surface); color:var(--text); text-align:center; }
-  #app { width:100%; max-width:460px; display:flex; flex-direction:column; align-items:center; gap:12px; }
+  html, body { margin:0; height:100%; background:#000; color:var(--text); font-family:-apple-system, "Segoe UI", Arial, sans-serif; overflow:hidden; }
   button { font:inherit; color:var(--text); border:1px solid #3a3a42; background:var(--surface2); border-radius:14px; padding:14px 10px; font-size:17px; font-weight:600; cursor:pointer; }
   button:active { transform:scale(.98); }
-  button[disabled] { opacity:.4; }
   .gold { background:var(--gold); color:#1a1508; border-color:var(--gold); }
-  .on { border-color:var(--gold); color:var(--gold); }
-  #status { display:flex; align-items:center; gap:8px; font-size:14px; color:var(--muted); text-align:center; }
-  #dot { width:10px; height:10px; border-radius:50%; background:var(--bad); flex:none; }
+  input, select { width:100%; font-size:20px; padding:14px; border-radius:12px; border:1px solid #3a3a42; background:var(--surface); color:var(--text); text-align:center; }
+  #login { position:fixed; inset:0; display:none; flex-direction:column; align-items:center; justify-content:center; gap:12px; padding:24px; background:var(--bg); }
+  #login > * { width:100%; max-width:380px; }
+  #login h1 { font-size:18px; color:var(--gold); text-align:center; margin:0; }
+  #loginErr { color:var(--bad); min-height:20px; font-size:14px; text-align:center; }
+  #app { position:fixed; inset:0; display:none; flex-direction:column; background:#000; }
+  #bar { flex:none; display:flex; align-items:center; justify-content:center; gap:8px; padding:calc(6px + env(safe-area-inset-top)) 10px 6px; font-size:12px; color:var(--muted); background:var(--bg); text-align:center; }
+  #dot { width:9px; height:9px; border-radius:50%; background:var(--bad); flex:none; }
   #dot.ok { background:var(--ok); }
-  #preview { width:100%; max-height:38vh; object-fit:contain; background:#000; border-radius:14px; display:none; }
-  #screenName { color:var(--muted); font-size:15px; padding:18px 8px; text-align:center; line-height:1.5; }
-  #cmdStatus { min-height:22px; font-size:15px; text-align:center; }
-  #diag { color:#6f6959; font-size:11px; text-align:center; direction:ltr; }
-  #buttons { width:100%; display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-  #buttons .wide { grid-column:1 / -1; }
-  #buttons .big { font-size:22px; padding:20px 10px; }
-  #copies { display:flex; align-items:center; justify-content:center; gap:14px; grid-column:1 / -1; }
-  #copies button { width:56px; }
-  #copies span { font-size:22px; min-width:28px; text-align:center; }
+  #area { position:relative; flex:1; min-height:0; display:flex; align-items:flex-start; justify-content:center; overflow:hidden; }
+  #box { position:relative; overflow:hidden; }
+  #stage { border:0; display:block; transform-origin:top left; background:#000; pointer-events:none; }
+  #touch { position:absolute; inset:0; touch-action:none; }
+  #notice { position:absolute; left:0; right:0; top:0; z-index:5; display:none; padding:10px 14px; text-align:center; font-size:15px; line-height:1.4; background:rgba(12,12,14,.94); color:var(--text); border-bottom:1px solid #3a3a42; }
+  #diag { flex:none; color:#6f6959; font-size:10px; text-align:center; direction:ltr; padding:2px 0 calc(2px + env(safe-area-inset-bottom)); background:var(--bg); }
+  .tapdot { position:absolute; width:34px; height:34px; margin:-17px 0 0 -17px; border-radius:50%; background:rgba(216,187,114,.55); pointer-events:none; animation:tapfade .45s ease-out forwards; }
+  @keyframes tapfade { from { transform:scale(.4); opacity:1; } to { transform:scale(1.4); opacity:0; } }
+  .modal { position:fixed; inset:0; display:none; align-items:center; justify-content:center; padding:20px; background:rgba(0,0,0,.85); z-index:20; }
+  .modal .card { width:100%; max-width:380px; max-height:80vh; overflow:auto; background:var(--surface); border:1px solid #3a3a42; border-radius:16px; padding:18px; display:flex; flex-direction:column; gap:12px; }
+  .modal .row { display:flex; gap:10px; }
+  .modal .row button { flex:1; }
+  .opt { text-align:right; }
+  .opt.sel { border-color:var(--gold); color:var(--gold); }
 </style>
 </head>
 <body>
-<h1>Memories4U</h1>
-<div id="login" style="display:none">
+<div id="login">
+  <h1>Memories4U</h1>
   <p style="text-align:center;color:var(--muted);margin:0">הקלידו את סיסמת ההגדרות</p>
   <input id="pw" type="password" inputmode="text" placeholder="סיסמה" autocomplete="off">
-  <button class="gold" id="enter" style="width:100%">כניסה</button>
-  <div id="loginErr" style="color:var(--bad);min-height:20px;font-size:14px"></div>
+  <button class="gold" id="enter">כניסה</button>
+  <div id="loginErr"></div>
 </div>
-<div id="app" style="display:none">
-  <div id="status"><span id="dot"></span><span id="statusText">מתחבר…</span></div>
-  <img id="preview" alt="">
-  <div id="screenName"></div>
-  <div id="buttons"></div>
-  <div id="cmdStatus"></div>
+<div id="app">
+  <div id="bar"><span id="dot"></span><span id="barText">מתחבר…</span></div>
+  <div id="area">
+    <div id="notice"></div>
+    <div id="box">
+      <iframe id="stage" title="האייפד" sandbox="allow-same-origin"></iframe>
+      <div id="touch"></div>
+    </div>
+  </div>
   <div id="diag"></div>
 </div>
+<div class="modal" id="editModal"><div class="card">
+  <div id="editTitle" style="text-align:center;font-size:16px;color:var(--muted)"></div>
+  <input id="editInput" autocomplete="off">
+  <div class="row"><button id="editCancel">ביטול</button><button class="gold" id="editOk">אישור</button></div>
+</div></div>
+<div class="modal" id="pickModal"><div class="card">
+  <div id="pickList" style="display:flex;flex-direction:column;gap:8px"></div>
+  <button id="pickCancel">ביטול</button>
+</div></div>
 <script src="assets/js/mqtt.min.js?v=1"></script>
 <script>
 (function () {
@@ -71,17 +86,16 @@
   function hex(buf) {
     return Array.prototype.map.call(new Uint8Array(buf), function (b) { return b.toString(16).padStart(2, '0'); }).join('');
   }
-  var ctx = null, client = null, brokerIdx = 0, connected = false, gotState = false;
-  var state = null, stateAt = 0, lastFrameUrl = null, lastSig = '';
-  var clockOffset = 0;   // iPad clock minus this phone's clock, so commands are stamped in the iPad's time
-  var pending = null;    // {id, at} of the last command awaiting the iPad's confirmation
-  var OVERLAY_NAMES = { brb: 'מסך "תכף נשוב" מוצג באייפד', qr: 'באייפד מוצג עכשיו QR', gif: 'באייפד מוצג עכשיו GIF', settings: 'באייפד פתוח מסך ההגדרות', admin: 'באייפד מוצג חלון סיסמה' };
-  var NAMES = {
-    'screen-lock': 'מסך נעילה', 'screen-welcome': 'מסך פתיחה', 'screen-ready': 'מוכנים לצלם',
-    'screen-camera': 'מצלמה', 'screen-result': 'התמונה', 'screen-gallery': 'גלריה',
-    'screen-trash': 'סל מחזור', 'screen-design': 'עורך עיצוב'
-  };
+  var ctx = null, client = null, connected = false;
+  var cands = {};          // broker url -> {c, up, closing, pendingD}: every connection being tried or in use
+  var lastStateTs = 0;
+  var lastLiveAt = 0;      // when a live (not stored) state from the iPad last arrived on the connection in use
+  var state = null, stateAt = 0, clockOffset = 0;
+  var snap = null, stageDoc = null, stageReady = false, stageIns = '', pendingSnap = null;
+  var imgUrls = {}, frameUrl = null, missing = {}, lastFullAt = 0;
+  var scaleK = 1, stageW = 820, stageH = 1180;
 
+  // ---------- crypto ----------
   function seedFrom(password) {
     var enc = new TextEncoder();
     return crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']).then(function (km) {
@@ -99,162 +113,545 @@
       });
     });
   }
-  function seal(bytes) {
+  function seal(kind, bytes) {
     var iv = crypto.getRandomValues(new Uint8Array(12));
-    return crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, ctx.key, bytes).then(function (ct) {
+    return crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv, additionalData: new TextEncoder().encode(kind) }, ctx.key, bytes).then(function (ct) {
       var out = new Uint8Array(12 + ct.byteLength);
       out.set(iv, 0); out.set(new Uint8Array(ct), 12);
       return out;
     });
   }
-  function open(buf) {
+  function open(kind, buf) {
     var u = new Uint8Array(buf);
-    return crypto.subtle.decrypt({ name: 'AES-GCM', iv: u.slice(0, 12) }, ctx.key, u.slice(12)).then(function (pt) { return new Uint8Array(pt); });
+    return crypto.subtle.decrypt({ name: 'AES-GCM', iv: u.slice(0, 12), additionalData: new TextEncoder().encode(kind) }, ctx.key, u.slice(12)).then(function (pt) { return new Uint8Array(pt); });
+  }
+  function beat(full) {
+    if (!client || !connected) return Promise.resolve(false);   // only the chosen connection is told a phone is watching
+    return publish('w', new TextEncoder().encode(JSON.stringify({ ts: Date.now() + clockOffset, id: Math.random().toString(16).slice(2) + Date.now().toString(16), full: full ? 1 : 0 })));
+  }
+  function publishTargets(toAll) {
+    if (client && connected && !toAll) return [client];
+    return Object.keys(cands).map(function (k) { return cands[k]; }).filter(function (x) { return x.up; }).map(function (x) { return x.c; });
   }
   function publish(kind, bytes) {
-    if (!client || !connected) return Promise.resolve();
-    return seal(bytes).then(function (sealed) { client.publish(ctx.topic + '/' + kind, sealed, { qos: 0 }); });
+    var targets = kind === 'c' ? (client && connected ? [client] : []) : publishTargets(false);
+    if (!targets.length) return Promise.resolve(false);
+    return seal(kind, bytes).then(function (sealed) {
+      targets.forEach(function (c) { try { c.publish(ctx.topic + '/' + kind, sealed, { qos: 0 }); } catch (e) {} });
+      return true;
+    });
+  }
+  function unpack(bytes) {
+    if (bytes[0] === 0) return Promise.resolve(bytes.slice(1));
+    if (typeof DecompressionStream === 'undefined') return Promise.reject(new Error('no gzip'));
+    var ds = new DecompressionStream('gzip');
+    var w = ds.writable.getWriter();
+    w.write(bytes.slice(1));
+    w.close();
+    return new Response(ds.readable).arrayBuffer().then(function (ab) { return new Uint8Array(ab); });
   }
 
-  function connect() {
-    if (client || !ctx) return;
-    var url = BROKERS[brokerIdx % BROKERS.length];
+  // ---------- the mirrored screen ----------
+  var buildNo = 0;
+  function buildStage(ins) {
+    var myBuild = ++buildNo;
+    stageReady = false;
+    stageIns = JSON.stringify(ins || {});
+    var base = location.href.replace(/[#?].*$/, '').replace(/[^\/]*$/, '');
+    return fetch('index.html', { cache: 'no-cache' }).then(function (r) { return r.text(); }).then(function (txt) {
+      var d = new DOMParser().parseFromString(txt, 'text/html');
+      var head = '';
+      var sheets = [];
+      d.querySelectorAll('link[rel=stylesheet], style').forEach(function (n) {
+        head += n.outerHTML;
+        var href = n.tagName === 'LINK' ? n.getAttribute('href') : '';
+        if (href && !/^https?:/.test(href)) sheets.push(fetch(href).then(function (r) { return r.text(); }).catch(function () { return ''; }));
+      });
+      // The iPad's focus ring comes from :focus / :focus-visible rules; the copy has no real focus,
+      // so the same rules are re-aimed at the field the iPad reports as focused (data-m4u-focus).
+      return Promise.all(sheets).then(function (css) {
+        var extra = '';
+        css.forEach(function (c) {
+          (c.match(/[^{}]*:focus[^{}]*\{[^{}]*\}/g) || []).forEach(function (rule) {
+            extra += rule.replace(/:focus-visible/g, '[data-m4u-focus]').replace(/:focus(?![-\w])/g, '[data-m4u-focus]');
+          });
+        });
+        return { head: head, extra: extra };
+      });
+    }).then(function (o) {
+      var head = o.head;
+      head = head.replace(/env\(safe-area-inset-(top|right|bottom|left)\)/g, function (m, s) { return ((ins && ins[s]) || 0) + 'px'; });
+      head = head.replace(/:focus-visible/g, '[data-m4u-focus]').replace(/:focus(?![-\w])/g, '[data-m4u-focus]');
+      head += '<style>' + o.extra + '</style>';
+      if (myBuild !== buildNo) return;   // a newer build started while this one was fetching
+      var f = $('stage');
+      f.onload = function () {
+        stageDoc = f.contentDocument;
+        stageReady = true;
+        if (pendingSnap) { var p = pendingSnap; pendingSnap = null; applySnapshot(p); }
+      };
+      f.srcdoc = '<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="script-src \'none\'; form-action \'none\'; object-src \'none\'; frame-src \'none\'; connect-src \'none\'"><base href="' + base + '">' + head + '</head><body></body></html>';
+    });
+  }
+  function layout() {
+    var area = $('area');
+    var aw = area.clientWidth, ah = area.clientHeight;
+    if (!aw || !ah) return;
+    scaleK = Math.min(aw / stageW, ah / stageH);
+    var f = $('stage');
+    f.style.width = stageW + 'px';
+    f.style.height = stageH + 'px';
+    f.style.transform = 'scale(' + scaleK + ')';
+    var box = $('box');
+    box.style.width = Math.round(stageW * scaleK) + 'px';
+    box.style.height = Math.round(stageH * scaleK) + 'px';
+  }
+  function imgUrl(key) { return imgUrls[key] || ''; }
+  function resolveMedia(root) {
+    root.querySelectorAll('[src^="m4u:"]').forEach(function (el) {
+      var key = el.getAttribute('src').slice(4);
+      var u = imgUrl(key);
+      if (u) el.setAttribute('src', u); else { el.setAttribute('data-m4u-k', key); el.removeAttribute('src'); missing[key] = true; }
+    });
+    root.querySelectorAll('[style*="m4u:"]').forEach(function (el) {
+      var st = el.getAttribute('style').replace(/url\(m4u:([^)]+)\)/g, function (m, key) {
+        var u = imgUrl(key);
+        if (u) return 'url(' + u + ')';
+        missing[key] = true;
+        el.setAttribute('data-m4u-kbg', key);
+        return 'none';
+      });
+      el.setAttribute('style', st);
+    });
+  }
+  function syncAttrs(o, n) {
+    var i, a;
+    for (i = o.attributes.length - 1; i >= 0; i--) {
+      a = o.attributes[i].name;
+      if (!n.hasAttribute(a)) o.removeAttribute(a);
+    }
+    for (i = 0; i < n.attributes.length; i++) {
+      a = n.attributes[i];
+      if (o.getAttribute(a.name) !== a.value) o.setAttribute(a.name, a.value);
+    }
+  }
+  function morphChildren(op, np) {
+    var oc = op.childNodes, nc = np.childNodes, i, o, n;
+    for (i = 0; i < nc.length; i++) {
+      n = nc[i]; o = oc[i];
+      if (!o) { op.appendChild(stageDoc.importNode(n, true)); continue; }
+      if (o.nodeType !== n.nodeType || (n.nodeType === 1 && o.tagName !== n.tagName)) { op.replaceChild(stageDoc.importNode(n, true), o); continue; }
+      if (n.nodeType !== 1) { if (o.nodeValue !== n.nodeValue) o.nodeValue = n.nodeValue; continue; }
+      if (o.getAttribute('data-m4u-video') && n.hasAttribute && n.hasAttribute('data-m4u-video')) {
+        var keepSrc = o.getAttribute('src');
+        syncAttrs(o, n);
+        if (keepSrc) o.setAttribute('src', keepSrc);
+        continue;
+      }
+      syncAttrs(o, n);
+      var t = o.tagName;
+      if (t === 'INPUT') {
+        var ty = (o.getAttribute('type') || 'text').toLowerCase();
+        if (ty === 'checkbox' || ty === 'radio') o.checked = n.hasAttribute('checked');
+        else if (ty !== 'file' && o.value !== (n.getAttribute('value') || '')) o.value = n.getAttribute('value') || '';
+      } else if (t === 'TEXTAREA') {
+        if (o.value !== n.textContent) o.value = n.textContent;
+        continue;
+      } else if (t === 'SELECT') {
+        morphChildren(o, n);
+        for (var k = 0; k < n.options.length; k++) if (n.options[k].hasAttribute('selected')) { o.selectedIndex = k; break; }
+        continue;
+      }
+      morphChildren(o, n);
+    }
+    while (op.childNodes.length > nc.length) op.removeChild(op.lastChild);
+  }
+  var lastSid = '', lastSeq = 0;
+  function applySnapshot(p) {
+    var insKey = JSON.stringify(p.ins || {});
+    if (!stageReady || insKey !== stageIns) {
+      // keep the newest one until the frame is built, and don't count it as shown yet
+      if (!pendingSnap || p.sid !== pendingSnap.sid || (p.seq || 0) >= (pendingSnap.seq || 0)) pendingSnap = p;
+      if (insKey !== stageIns || !stageDoc) buildStage(p.ins);
+      return;
+    }
+    if (p.sid !== lastSid) {
+      // A new iPad session: its picture keys start over, so forget the old pictures.
+      lastSid = p.sid; lastSeq = 0;
+      Object.keys(imgUrls).forEach(function (k) {
+        if (k.indexOf(p.sid + '_') === 0) return;   // this session's pictures may already have arrived
+        try { URL.revokeObjectURL(imgUrls[k]); } catch (e) {}
+        delete imgUrls[k];
+      });
+    }
+    if (p.seq && p.seq <= lastSeq) return;
+    if (p.seq) lastSeq = p.seq;
+    missing = {};
+    if (p.w !== stageW || p.h !== stageH) { stageW = p.w; stageH = p.h; layout(); }
+    var root = stageDoc.documentElement, body = stageDoc.body;
+    if (root.className !== p.htmlCls) root.className = p.htmlCls;
+    if ((root.getAttribute('style') || '') !== p.htmlSt) root.setAttribute('style', p.htmlSt);
+    if (body.className !== p.bodyCls) body.className = p.bodyCls;
+    if ((body.getAttribute('style') || '') !== p.bodySt) body.setAttribute('style', p.bodySt);
+    var tpl = stageDoc.createElement('template');
+    tpl.innerHTML = p.html;
+    resolveMedia(tpl.content);
+    morphChildren(body, tpl.content);
+    stageDoc.querySelectorAll('[data-m4u-st]').forEach(function (el) {
+      var v = parseInt(el.getAttribute('data-m4u-st'), 10);
+      if (Math.abs(el.scrollTop - v) > 2 && Date.now() - lastScrollAt > 500) el.scrollTop = v;
+    });
+    stageDoc.querySelectorAll('[data-m4u-sl]').forEach(function (el) {
+      var v = parseInt(el.getAttribute('data-m4u-sl'), 10);
+      if (Math.abs(el.scrollLeft - v) > 1) el.scrollLeft = v;
+    });
+    setVideoFrame();
+    askMissing();
+  }
+  function setVideoFrame() {
+    if (!stageDoc || !frameUrl) return;
+    stageDoc.querySelectorAll('img[data-m4u-video]').forEach(function (im) { if (im.getAttribute('src') !== frameUrl) im.setAttribute('src', frameUrl); });
+  }
+  var missTries = {};
+  function askMissing() {
+    var ks = Object.keys(missing).filter(function (k) { missTries[k] = (missTries[k] || 0) + 1; return missTries[k] <= 4; });
+    if (!ks.length || Date.now() - lastFullAt < 2500) return;
+    lastFullAt = Date.now();
+    beat(true);
+  }
+  function gotImage(key, mime, bytes) {
+    if (imgUrls[key]) return;
+    var u = URL.createObjectURL(new Blob([bytes], { type: mime }));
+    imgUrls[key] = u;
+    var keys = Object.keys(imgUrls);
+    if (keys.length > 700) keys.slice(0, 150).forEach(function (k) { try { URL.revokeObjectURL(imgUrls[k]); } catch (e) {} delete imgUrls[k]; });
+    delete missing[key];
+    if (!stageDoc) return;
+    stageDoc.querySelectorAll('[data-m4u-k="' + key + '"]').forEach(function (el) { el.setAttribute('src', u); el.removeAttribute('data-m4u-k'); });
+    stageDoc.querySelectorAll('[data-m4u-kbg="' + key + '"]').forEach(function (el) {
+      el.style.backgroundImage = 'url(' + u + ')';
+      el.removeAttribute('data-m4u-kbg');
+    });
+  }
+
+  // ---------- connection ----------
+  // The iPad sits on ONE of the public brokers (whichever answered first for it). The
+  // phone can't know which, so it tries all of them at once, stays on the one where a
+  // live message from the iPad shows up, and drops the rest. If that goes quiet it
+  // looks again - so both sides always find each other, even after either one moves.
+  function closeCand(url) {
+    var rec = cands[url];
+    if (!rec) return;
+    rec.closing = true;
+    delete cands[url];
+    try { rec.c.end(true); } catch (e) {}
+  }
+  function handleMsg(c, rec, topic, payload, packet) {
+    var kind = topic.slice(ctx.topic.length + 1);
+    var retained = !!(packet && packet.retain);
+    var inUse = client === c;
+    if (!inUse && kind !== 's') {
+      // Stored copies from a broker we haven't chosen yet: keep only the latest screen.
+      if (kind === 'd') rec.pendingD = payload;
+      return;
+    }
+    open(kind, payload).then(function (bytes) {
+      if (rec.closing) return;              // this connection was dropped while the message was being read
+      inUse = client === c;
+      if (kind === 's') {
+        if (retained) return;               // a stored state proves nothing about now
+        var st = JSON.parse(new TextDecoder().decode(bytes));
+        // a copy of an older state (replayed) must not move the clock estimate
+        if (st.ts && st.ts <= lastStateTs) return;
+        if (st.ts) lastStateTs = st.ts;
+        if (!inUse) {
+          // The iPad is alive here: this is our broker.
+          Object.keys(cands).forEach(function (u) { if (cands[u].c !== c) closeCand(u); });
+          client = c; connected = true; inUse = true;
+          if (st.ts) clockOffset = st.ts - Date.now();
+          beat(true);
+          if (rec.pendingD) { var pd = rec.pendingD; rec.pendingD = null; handleMsg(c, rec, ctx.topic + '/d', pd, { retain: true }); }
+        }
+        lastLiveAt = Date.now();
+        state = st;
+        stateAt = Date.now();
+        if (state.ts) clockOffset = state.ts - stateAt;
+        renderBar();
+      } else if (kind === 'd') {
+        return unpack(bytes).then(function (raw) {
+          snap = JSON.parse(new TextDecoder().decode(raw));
+          applySnapshot(snap);
+        });
+      } else if (kind === 'i') {
+        var klen = bytes[1];
+        var key = new TextDecoder().decode(bytes.slice(2, 2 + klen));
+        gotImage(key, bytes[0] === 2 ? 'image/png' : (bytes[0] === 3 ? 'image/gif' : 'image/jpeg'), bytes.slice(2 + klen));
+      } else if (kind === 'f') {
+        var u = URL.createObjectURL(new Blob([bytes], { type: 'image/jpeg' }));
+        var old = frameUrl;
+        frameUrl = u;
+        setVideoFrame();
+        if (old) setTimeout(function () { URL.revokeObjectURL(old); }, 500);
+      }
+    }).catch(function () {});
+  }
+  function openBroker(url) {
+    if (cands[url] || !ctx || typeof mqtt === 'undefined') return;
     var c;
     try {
       c = mqtt.connect(url, { clientId: 'm4u-phone-' + Math.random().toString(16).slice(2, 10), reconnectPeriod: 0, connectTimeout: 6000, keepalive: 20, clean: true });
-    } catch (e) { setTimeout(connect, 4000); return; }
-    client = c; gotState = false;
+    } catch (e) { return; }
+    var rec = { c: c, up: false, closing: false, pendingD: null };
+    cands[url] = rec;
     var ended = false;
-    var seek = null;
     function gone() {
       if (ended) return;
-      ended = true; connected = false; client = null; clearTimeout(seek);
+      ended = true;
+      if (rec.closing) return;
+      rec.up = false;
+      if (cands[url] === rec) delete cands[url];
       try { c.end(true); } catch (e) {}
-      brokerIdx++;
-      setTimeout(connect, 1500);
-      render();
+      if (client === c) { client = null; connected = false; }
+      renderBar();
     }
     c.on('connect', function () {
-      connected = true;
-      c.subscribe([ctx.topic + '/s', ctx.topic + '/f']);
-      // If the iPad is not on this broker, its state never shows up here: try the next one.
-      seek = setTimeout(function () { if (!gotState) gone(); }, 5000);
-      render();
+      rec.up = true;
+      c.subscribe([ctx.topic + '/s', ctx.topic + '/d', ctx.topic + '/i', ctx.topic + '/f']);
+      // Tell the iPad a phone is here (goes to every open connection until one is chosen).
+      seal('w', new TextEncoder().encode(JSON.stringify({ ts: Date.now() + clockOffset, probe: 1 }))).then(function (s) { try { c.publish(ctx.topic + '/w', s, { qos: 0 }); } catch (e) {} });
+      renderBar();
     });
-    c.on('message', function (topic, payload) {
-      var kind = topic.slice(ctx.topic.length + 1);
-      open(payload).then(function (bytes) {
-        if (kind === 's') {
-          gotState = true;
-          state = JSON.parse(new TextDecoder().decode(bytes));
-          stateAt = Date.now();
-          if (state.ts) clockOffset = state.ts - stateAt;
-          render();
-        } else if (kind === 'f') {
-          var u = URL.createObjectURL(new Blob([bytes], { type: 'image/jpeg' }));
-          $('preview').src = u;
-          if (lastFrameUrl) URL.revokeObjectURL(lastFrameUrl);
-          lastFrameUrl = u;
-        }
-      }).catch(function () {});
-    });
+    c.on('message', function (topic, payload, packet) { handleMsg(c, rec, topic, payload, packet); });
     c.on('close', gone);
     c.on('error', gone);
   }
+  function seekAll() { BROKERS.forEach(openBroker); }
+  // Every few seconds: make sure something is connected, look elsewhere when the chosen
+  // connection has gone quiet, and drop the extra connections once one is doing well.
+  function watchdog() {
+    if (!ctx) return;
+    var now = Date.now();
+    var healthy = client && connected && now - lastLiveAt < 12000;
+    if (!client) { seekAll(); }
+    else if (!healthy) { seekAll(); }
+    else Object.keys(cands).forEach(function (u) { if (cands[u].c !== client) closeCand(u); });
+  }
+  function connect() { seekAll(); }
 
-  function send(cmd, btn) {
-    if (btn) { btn.disabled = true; setTimeout(function () { btn.disabled = false; }, 700); }
-    if (navigator.vibrate) navigator.vibrate(30);
-    var id = Math.random().toString(16).slice(2) + Date.now().toString(16);
-    pending = { id: id, at: Date.now() };
-    $('cmdStatus').style.color = 'var(--muted)';
-    $('cmdStatus').textContent = 'שולח…';
-    publish('c', new TextEncoder().encode(JSON.stringify({ cmd: cmd, id: id, ts: Date.now() + clockOffset })));
+  function renderBar() {
+    var online = !!state && Date.now() - stateAt < 20000;
+    $('dot').className = online ? 'ok' : '';
+    var txt = online ? 'האייפד מחובר' : (Object.keys(cands).length ? 'מחפש את האייפד…' : 'מתחבר…');
+    if (online && state.event) txt += ' | ' + state.event;
+    if (online && state.count != null) txt += ' | ' + state.count + ' תמונות';
+    $('barText').textContent = txt;
+    var note = '';
+    if (!online) note = state ? 'האייפד לא מחובר. בדקו שהוא פתוח על האפליקציה ושיש לו אינטרנט.' : '';
+    else if (state.camWait) note = 'באייפד מוצגת בקשת הרשאה למצלמה. צריך ללחוץ "אישור" באייפד עצמו, אי אפשר לאשר אותה מהטלפון.';
+    var n = $('notice');
+    n.textContent = note;
+    n.style.display = note ? 'block' : 'none';
+    $('diag').textContent = state ? ((state.broker || '') + ' | clock ' + Math.round(clockOffset / 1000) + 's | rx ' + (state.rx || 0) + (state.rej ? ' | ' + state.rej : '') + ' | v' + (state.version || '')) : '';
   }
-  function b(label, cmd, cls, disabled) {
-    return '<button class="' + (cls || '') + '" data-cmd="' + cmd + '"' + (disabled ? ' disabled' : '') + '>' + label + '</button>';
+
+  // ---------- taps, drags, typing ----------
+  var lastScrollAt = 0;
+  function flash(msg) {
+    var n = $('notice');
+    n.textContent = msg;
+    n.style.display = 'block';
+    setTimeout(renderBar, 2200);
   }
-  function buttonsFor(st, online) {
-    if (!online) return '';
-    var h = '';
-    if (st.overlay === 'brb') return b('✅ חזרתי, סגירת ההודעה', 'brb_off', 'gold wide big');
-    if (st.overlay === 'qr' || st.overlay === 'gif') return b('סגירה', 'close', 'gold wide big');
-    if (st.overlay === 'settings') return b('סגירת ההגדרות באייפד', 'close_settings', 'gold wide big');
-    if (st.overlay === 'admin') return b('סגירת חלון הסיסמה באייפד', 'close_admin', 'gold wide big');
-    var s = st.screen;
-    if (s === 'screen-welcome' || s === 'screen-ready') h += b('התחילו לצלם', 'start', 'gold wide big');
-    else if (s === 'screen-camera') { h += b(st.capturing ? 'מצלם…' : '📸 צלם', 'shoot', 'gold wide big', st.capturing); h += b('חזרה', 'back', 'wide'); }
-    else if (s === 'screen-result') {
-      h += b('📸 צילום נוסף', 'retake', 'wide big');
-      h += b('🌓 שחור-לבן', 'bw', st.bw ? 'on' : '');
-      h += b('🖨️ הדפסה', 'print', 'gold');
-      h += '<div id="copies"><button data-cmd="copies_minus">−</button><span>' + (Number(st.copies) | 0) + '</span><button data-cmd="copies_plus">+</button><span style="font-size:14px;color:var(--muted)">עותקים</span></div>';
-      h += b('QR לטלפון', 'qr'); h += b('GIF', 'gif');
-      h += b('חזרה למסך הפתיחה', 'back', 'wide');
+  function cmd(obj) {
+    if (!client || !connected || !state || Date.now() - stateAt > 20000) { flash('אין חיבור לאייפד כרגע, הלחיצה לא נשלחה'); return; }
+    obj.id = Math.random().toString(16).slice(2) + Date.now().toString(16);
+    obj.ts = Date.now() + clockOffset;
+    publish('c', new TextEncoder().encode(JSON.stringify(obj)));
+  }
+  function stagePoint(e) {
+    var r = $('box').getBoundingClientRect();
+    return { x: (e.clientX - r.left) / scaleK, y: (e.clientY - r.top) / scaleK, px: e.clientX - r.left, py: e.clientY - r.top };
+  }
+  function hitAt(p) {
+    if (!stageDoc) return null;
+    return stageDoc.elementFromPoint(p.x, p.y);
+  }
+  function scroller(el) {
+    while (el && el !== stageDoc.body && el !== stageDoc.documentElement) {
+      var oy = stageDoc.defaultView.getComputedStyle(el).overflowY;
+      if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 1) return el;
+      el = el.parentElement;
     }
-    h += b('🚻 תכף נשוב', 'brb_on', 'wide');
-    return h;
+    return null;
   }
-  function render() {
-    if (!secret) {
-      $('dot').className = '';
-      $('statusText').textContent = 'אין קישור שמור';
-      $('screenName').textContent = 'סרקו שוב את ה-QR מההגדרות באייפד (📱 שליטה מהפלאפון)';
-      $('buttons').innerHTML = ''; $('preview').style.display = 'none';
+  var drag = null;
+  var extra = {};   // second finger while the first is forwarded raw (pinch)
+  var touch = $('touch');
+  function rawSend(t, pid, p) {
+    cmd({ t: t, pid: pid, x: p.x, y: p.y });
+  }
+  touch.addEventListener('pointerdown', function (e) {
+    var p = stagePoint(e);
+    if (drag && drag.raw && !extra[e.pointerId]) {
+      extra[e.pointerId] = { sent: 0 };
+      try { touch.setPointerCapture(e.pointerId); } catch (err) {}
+      rawSend('pd', 1, p);
       return;
     }
-    var online = !!state && Date.now() - stateAt < 9000;
-    var st = state || {};
-    $('dot').className = online ? 'ok' : '';
-    var txt = online ? 'האייפד מחובר' : (connected ? 'מחפש את האייפד…' : 'מתחבר…');
-    if (online && st.event) txt += ' | ' + st.event;
-    if (online && st.count != null) txt += ' | ' + st.count + ' תמונות';
-    $('statusText').textContent = txt;
-    var showImg = online && (st.screen === 'screen-camera' || st.screen === 'screen-result') && !st.overlay;
-    $('preview').style.display = showImg ? 'block' : 'none';
-    $('screenName').textContent = !online ? 'בדקו שהאייפד פתוח על האפליקציה ושיש לו אינטרנט' : (OVERLAY_NAMES[st.overlay] || (showImg ? '' : (NAMES[st.screen] || '')));
-    if (pending) {
-      if (st.ack === pending.id) { $('cmdStatus').style.color = 'var(--ok)'; $('cmdStatus').textContent = '✓ בוצע'; pending = null; setTimeout(function () { if (!pending) $('cmdStatus').textContent = ''; }, 1500); }
-      else if (Date.now() - pending.at > 6000) { $('cmdStatus').style.color = 'var(--bad)'; $('cmdStatus').textContent = 'האייפד לא הגיב לפקודה' + (st.rej ? ' (' + st.rej + ')' : ''); pending = null; }
-    }
-    $('diag').textContent = state ? ((st.broker || '') + ' | clock ' + Math.round(clockOffset / 1000) + 's | rx ' + (st.rx || 0) + (st.rej ? ' | ' + st.rej : '') + ' | v' + (st.version || '')) : '';
-    var sig = JSON.stringify([online, st.screen, st.overlay, st.capturing, st.bw, st.copies]);
-    if (sig !== lastSig) { lastSig = sig; $('buttons').innerHTML = buttonsFor(st, online); }
-  }
-  $('buttons').addEventListener('click', function (e) {
-    var t = e.target.closest ? e.target.closest('button[data-cmd]') : null;
-    if (t) send(t.getAttribute('data-cmd'), t);
+    if (drag) return;
+    var el = hitAt(p);
+    drag = { id: e.pointerId, sx: e.clientX, sy: e.clientY, ly: e.clientY, p: p, last: p, el: el, moved: false, acc: 0, sent: 0, raw: false,
+             range: el && el.closest ? el.closest('input[type=range]') : null,
+             dragx: el && el.closest ? !!el.closest('[data-m4u-dragx]') : false };
+    if (el && el.closest && el.closest('[data-m4u-drag]') && !drag.range) { drag.raw = true; rawSend('pd', 0, p); }
+    try { touch.setPointerCapture(e.pointerId); } catch (err) {}
+    if (drag.range) cmd({ t: 'range', x: p.x, y: p.y });
   });
-
-  function sha256hex(text) {
-    return crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)).then(hex);
+  touch.addEventListener('pointermove', function (e) {
+    if (extra[e.pointerId]) {
+      var ex = extra[e.pointerId];
+      if (Date.now() - ex.sent > 30) { ex.sent = Date.now(); rawSend('pm', 1, stagePoint(e)); }
+      return;
+    }
+    if (!drag || e.pointerId !== drag.id) return;
+    var p = stagePoint(e);
+    drag.last = p;
+    if (drag.range) {
+      if (Date.now() - drag.sent > 60) { drag.sent = Date.now(); cmd({ t: 'range', x: p.x, y: drag.p.y }); }
+      return;
+    }
+    if (drag.raw) {
+      if (Date.now() - drag.sent > 30) { drag.sent = Date.now(); rawSend('pm', 0, p); }
+      return;
+    }
+    var dx = e.clientX - drag.sx, dy = e.clientY - drag.ly;
+    if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) > 10) {
+      drag.moved = true;
+      // A sideways drag over selectable tiles is "drag to select", not a scroll.
+      if (drag.dragx && Math.abs(e.clientX - drag.sx) > Math.abs(e.clientY - drag.sy)) {
+        drag.raw = true;
+        rawSend('pd', 0, drag.p);
+        rawSend('pm', 0, p);
+        return;
+      }
+    }
+    if (!drag.moved) return;
+    drag.ly = e.clientY;
+    var sc = drag.el ? scroller(drag.el) : null;
+    if (!sc) return;
+    var d = -dy / scaleK;
+    sc.scrollTop += d;
+    lastScrollAt = Date.now();
+    drag.acc += d;
+    if (Date.now() - drag.sent > 70) {
+      drag.sent = Date.now();
+      cmd({ t: 'scroll', x: drag.p.x, y: drag.p.y, dy: drag.acc });
+      drag.acc = 0;
+    }
+  });
+  function endDrag(e) {
+    if (extra[e.pointerId]) { var pe = stagePoint(e); rawSend('pm', 1, pe); rawSend('pu', 1, pe); delete extra[e.pointerId]; return; }
+    if (!drag || e.pointerId !== drag.id) return;
+    var d = drag; drag = null;
+    var pEnd = stagePoint(e);
+    Object.keys(extra).forEach(function (k) { rawSend('pm', 1, pEnd); rawSend('pu', 1, pEnd); delete extra[k]; });
+    if (d.range) { cmd({ t: 'range', x: pEnd.x, y: d.p.y }); return; }
+    // the last move is sent again on release, so a fast flick ends exactly where the finger did
+    if (d.raw) { rawSend('pm', 0, pEnd); rawSend('pu', 0, pEnd); return; }
+    if (d.moved) { if (d.acc) cmd({ t: 'scroll', x: d.p.x, y: d.p.y, dy: d.acc }); return; }
+    if (e.type === 'pointercancel') return;
+    tap(d.p, d.el);
   }
+  touch.addEventListener('pointerup', endDrag);
+  touch.addEventListener('pointercancel', endDrag);
+  function ripple(p) {
+    var r = document.createElement('div');
+    r.className = 'tapdot';
+    r.style.left = p.px + 'px';
+    r.style.top = p.py + 'px';
+    $('box').appendChild(r);
+    setTimeout(function () { if (r.parentNode) r.parentNode.removeChild(r); }, 500);
+  }
+  function tap(p, el) {
+    ripple(p);
+    var field = el && el.closest ? el.closest('input,textarea,select') : null;
+    if (field) {
+      var tag = field.tagName, ty = (field.getAttribute('type') || 'text').toLowerCase();
+      if (tag === 'SELECT') return pickOption(p, field);
+      if (ty === 'file') return alert('בחירת קובץ אפשרית רק באייפד עצמו.');
+      if (ty === 'checkbox' || ty === 'radio' || ty === 'button' || ty === 'submit' || ty === 'range') { cmd({ t: 'tap', x: p.x, y: p.y }); return; }
+      return editField(p, field, ty);
+    }
+    cmd({ t: 'tap', x: p.x, y: p.y });
+  }
+  var editCtx = null;
+  function editField(p, field, ty) {
+    editCtx = { p: p, ty: ty };
+    var label = field.getAttribute('placeholder') || (field.closest('label') ? field.closest('label').textContent.trim() : '') || 'עריכה';
+    $('editTitle').textContent = label;
+    var inp = $('editInput');
+    inp.type = ty === 'password' ? 'password' : (ty === 'color' ? 'color' : (ty === 'number' ? 'number' : 'text'));
+    inp.value = ty === 'password' ? '' : (field.value || '');
+    $('editModal').style.display = 'flex';
+    setTimeout(function () { if (ty !== 'color') inp.focus(); }, 50);
+  }
+  function editDone(ok) {
+    var c = editCtx; editCtx = null;
+    $('editModal').style.display = 'none';
+    if (!ok || !c) return;
+    var v = $('editInput').value;
+    cmd({ t: c.ty === 'color' ? 'color' : 'text', x: c.p.x, y: c.p.y, value: v, enter: c.ty !== 'color' });
+  }
+  $('editOk').addEventListener('click', function () { editDone(true); });
+  $('editCancel').addEventListener('click', function () { editDone(false); });
+  $('editInput').addEventListener('keydown', function (e) { if (e.key === 'Enter') editDone(true); });
+  function pickOption(p, sel) {
+    var list = $('pickList');
+    list.innerHTML = '';
+    Array.prototype.forEach.call(sel.options, function (o, i) {
+      var b = document.createElement('button');
+      b.className = 'opt' + (o.selected ? ' sel' : '');
+      b.textContent = o.textContent;
+      b.addEventListener('click', function () { $('pickModal').style.display = 'none'; cmd({ t: 'select', x: p.x, y: p.y, index: i }); });
+      list.appendChild(b);
+    });
+    $('pickModal').style.display = 'flex';
+  }
+  $('pickCancel').addEventListener('click', function () { $('pickModal').style.display = 'none'; });
+
+  // ---------- start ----------
+  function sha256hex(text) { return crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)).then(hex); }
   function start(password) {
     return seedFrom(password).then(derive).then(function (c) {
       ctx = c;
       $('login').style.display = 'none';
       $('app').style.display = 'flex';
+      layout();
+      buildStage({});
       connect();
-      // Tells the iPad a phone is watching, so it starts sending the live picture.
-      setInterval(function () { publish('w', new Uint8Array([1])); }, 3000);
-      setInterval(render, 2000);
-      document.addEventListener('visibilitychange', function () { if (!document.hidden && ctx && !client) connect(); });
-      render();
+      setInterval(watchdog, 2500);
+      // Tells the iPad a phone is watching, so it starts sending the live screen.
+      setInterval(function () { beat(false); }, 3000);
+      setInterval(renderBar, 2000);
+      window.addEventListener('resize', layout);
+      document.addEventListener('visibilitychange', function () {
+        if (!document.hidden) { if (ctx) watchdog(); beat(true); }
+      });
     });
   }
   function tryLogin() {
     var v = $('pw').value;
     if (!v) return;
-    sha256hex(v).then(function (h) {
-      if (h !== PASSWORD_HASH) { $('loginErr').textContent = 'סיסמה שגויה'; $('pw').value = ''; return; }
+    sha256hex(v).then(function (hh) {
+      if (hh !== PASSWORD_HASH) { $('loginErr').textContent = 'סיסמה שגויה'; $('pw').value = ''; return; }
       $('pw').value = '';
       return start(v);
     });
   }
   $('enter').addEventListener('click', tryLogin);
   $('pw').addEventListener('keydown', function (e) { if (e.key === 'Enter') tryLogin(); });
-  if (secret) { $('login').style.display = 'flex'; }
-  else { $('app').style.display = 'flex'; render(); }
+  if (secret) $('login').style.display = 'flex';
+  else { $('app').style.display = 'flex'; $('barText').textContent = 'אין קישור שמור. סרקו שוב את ה-QR מההגדרות באייפד (📱 שליטה מהפלאפון).'; }
 })();
 </script>
 </body>
