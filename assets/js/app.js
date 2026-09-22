@@ -173,7 +173,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260922a';
+  var APP_VERSION = '20260922b';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -530,6 +530,13 @@
       openSettingsPanel();
     });
   });
+  $('events-manager-btn').addEventListener('click', function () {
+    renderSavedEventsList();
+    $('events-manager-panel').classList.add('active');
+  });
+  $('events-manager-close-btn').addEventListener('click', function () {
+    $('events-manager-panel').classList.remove('active');
+  });
   $('archived-events-btn').addEventListener('click', function () {
     renderArchivedEventsList();
     $('archive-panel').classList.add('active');
@@ -851,6 +858,11 @@
     var list = getMainSavedEvents();
     var container = $('saved-events-list');
     container.innerHTML = '';
+    var btn = $('events-manager-btn');
+    if (btn) {
+      var total = getSavedEvents().length;
+      btn.textContent = '📋 ניהול אירועים ושמורים' + (total ? ' (' + total + ')' : '');
+    }
     if (!list.length) {
       var empty = document.createElement('p');
       empty.className = 'design-hint';
