@@ -173,7 +173,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260921t';
+  var APP_VERSION = '20260921w';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -4878,7 +4878,7 @@
   setTimeout(remoteStart, 800);
   // Settings button: shows the phone's QR / link (creates the secret the first time).
   function remotePageUrl() {
-    return location.href.replace(/[#?].*$/, '').replace(/[^\/]*$/, '') + 'remote.html#' + remoteSecret();
+    return location.href.replace(/[#?].*$/, '').replace(/[^\/]*$/, '') + 'remote.html?v=' + APP_VERSION + '#' + remoteSecret();
   }
   function showRemoteQr() {
     var url = remotePageUrl();
@@ -4895,19 +4895,33 @@
   function makeRemoteLink(fresh) {
     var run = function () {
       var secret = remoteSecret();
-      if (!secret || fresh) {
-        // Wipe what the old link left on the broker before it stops being ours.
-        if (fresh && remoteCtx) {
-          remoteUpConns().forEach(function (x) {
-            ['s', 'd'].forEach(function (k) { try { x.c.publish(remoteCtx.topic + '/' + k, '', { qos: 0, retain: true }); } catch (e) {} });
+      // Wipe what the old link left on the broker, and tell any phone still on it right
+      // now to disconnect - not just go quiet until it times out on its own. Snapshots
+      // the still-open connections and waits for the push to actually go out over them
+      // BEFORE remoteStop() below closes those sockets, instead of racing it.
+      var revokeStep = Promise.resolve();
+      if (fresh && remoteCtx) {
+        var oldTopic = remoteCtx.topic;
+        var liveConns = remoteUpConns();
+        revokeStep = remoteSeal('s', new TextEncoder().encode(JSON.stringify({ ts: Date.now(), revoked: 1 }))).then(function (sealed) {
+          liveConns.forEach(function (x) {
+            try {
+              x.c.publish(oldTopic + '/s', sealed, { qos: 0 });
+              x.c.publish(oldTopic + '/s', '', { qos: 0, retain: true });
+              x.c.publish(oldTopic + '/d', '', { qos: 0, retain: true });
+            } catch (e) {}
           });
-        }
+        }).catch(function () {}).then(function () {
+          return new Promise(function (res) { setTimeout(res, 200); });
+        });
+      }
+      if (!secret || fresh) {
         var a = new Uint8Array(16);
         crypto.getRandomValues(a);
         secret = remoteHex(a);
         localStorage.setItem(REMOTE_SECRET_KEY, secret);
       }
-      remoteSeedFrom(adminPasswordMemory, secret).then(function (seed) {
+      revokeStep.then(function () { return remoteSeedFrom(adminPasswordMemory, secret); }).then(function (seed) {
         if (seed !== localStorage.getItem(REMOTE_SEED_KEY) || !remoteCtx) {
           localStorage.setItem(REMOTE_SEED_KEY, seed);
           remoteStop();

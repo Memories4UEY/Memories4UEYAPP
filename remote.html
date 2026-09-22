@@ -388,6 +388,7 @@
       if (kind === 's') {
         if (retained) return;               // a stored state proves nothing about now
         var st = JSON.parse(new TextDecoder().decode(bytes));
+        if (st.revoked) { revoke(); return; }
         // a copy of an older state (replayed) must not move the clock estimate
         if (st.ts && st.ts <= lastStateTs) return;
         if (st.ts) lastStateTs = st.ts;
@@ -469,7 +470,31 @@
   }
   function connect() { seekAll(); }
 
+  var revoked = false;
+  function revoke() {
+    if (revoked) return;
+    revoked = true;
+    Object.keys(cands).forEach(closeCand);
+    client = null; connected = false;
+    // Wipe the last-seen screen itself, not just stop updating it - whatever this phone
+    // was showing (a guest's photo, an admin screen) must not stay visible after the
+    // owner has deliberately cut this device off.
+    $('stage').removeAttribute('srcdoc');
+    stageDoc = null; stageReady = false; pendingSnap = null; snap = null;
+    Object.keys(imgUrls).forEach(function (k) { try { URL.revokeObjectURL(imgUrls[k]); } catch (e) {} });
+    imgUrls = {};
+    if (frameUrl) { try { URL.revokeObjectURL(frameUrl); } catch (e) {} frameUrl = null; }
+    $('box').style.display = 'none';
+    $('tools').style.display = 'none';
+    $('dot').className = '';
+    $('barText').textContent = 'הקישור הזה בוטל';
+    $('diag').textContent = '';
+    var n = $('notice');
+    n.style.cssText = 'position:absolute;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;font-size:17px;line-height:1.6;background:#000;color:var(--text)';
+    n.textContent = 'המנהל איפס את הקישור באייפד. סרקו שוב את ה-QR מההגדרות (📱 שליטה מהפלאפון) כדי להתחבר מחדש.';
+  }
   function renderBar() {
+    if (revoked) return;
     var online = !!state && Date.now() - stateAt < 20000;
     $('dot').className = online ? 'ok' : '';
     var txt = online ? 'האייפד מחובר' : (Object.keys(cands).length ? 'מחפש את האייפד…' : 'מתחבר…');
