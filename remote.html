@@ -544,7 +544,8 @@
     return null;
   }
   var drag = null;
-  var pts = {};     // every finger on the screen (area coordinates)
+  var pts = {};        // every finger on the screen (area coordinates)
+  var lastClient = {};  // same fingers, in raw client (page) coordinates
   var pinch = null;
   var extra = {};   // second finger while the first is forwarded raw (pinch)
   var touch = $('touch');
@@ -559,6 +560,7 @@
   }
   touch.addEventListener('pointerdown', function (e) {
     pts[e.pointerId] = areaPt(e);
+    lastClient[e.pointerId] = { x: e.clientX, y: e.clientY };
     if (Object.keys(pts).length === 2 && !(drag && drag.raw)) {
       // two fingers = zoom and move the view (not a tap on the iPad)
       drag = null;
@@ -586,6 +588,7 @@
   });
   touch.addEventListener('pointermove', function (e) {
     if (pts[e.pointerId]) pts[e.pointerId] = areaPt(e);
+    if (lastClient[e.pointerId]) lastClient[e.pointerId] = { x: e.clientX, y: e.clientY };
     if (pinch && Object.keys(pts).length >= 2) {
       var s1 = pinchState();
       zoomAbout(pinch.z0 * (s1.d / pinch.d0), s1.cx, s1.cy, pinch.u, pinch.v);
@@ -645,8 +648,24 @@
   });
   function endDrag(e) {
     delete pts[e.pointerId];
+    delete lastClient[e.pointerId];
     if (pinch) {
-      if (Object.keys(pts).length < 2) { pinch = null; if (zoom < 1.12) { zoom = 1; panX = 0; panY = 0; layout(); } }
+      var left = Object.keys(pts);
+      if (left.length < 2) {
+        pinch = null;
+        if (zoom < 1.12) { zoom = 1; panX = 0; panY = 0; layout(); }
+        // One finger of the pinch lifted, the other is still down - a natural continuous
+        // gesture (pinch, then keep looking around with the remaining finger). Without this,
+        // that finger's further movement would be silently ignored until it also lifts.
+        else if (left.length === 1) {
+          var rid = Number(left[0]);
+          var rc = lastClient[rid];
+          if (rc) {
+            var rp = stagePoint({ clientX: rc.x, clientY: rc.y });
+            drag = { id: rid, sx: rc.x, sy: rc.y, lx: rc.x, ly: rc.y, p: rp, last: rp, el: hitAt(rp), moved: true, acc: 0, sent: 0, raw: false, sc: null, pan: true, range: null, dragx: false };
+          }
+        }
+      }
       return;
     }
     if (extra[e.pointerId]) { var pe = stagePoint(e); rawSend('pm', 1, pe); rawSend('pu', 1, pe); delete extra[e.pointerId]; return; }

@@ -173,7 +173,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260921w';
+  var APP_VERSION = '20260922a';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -628,6 +628,20 @@
   // between them) - snapshots event title/date, capture mode, welcome
   // background and both designs under a name, loadable any time. ----------
   var SAVED_EVENTS_KEY = 'm4u_saved_events';
+  var EVENT_TRASH_KEY = 'm4u_deleted_events';
+  function getEventTrash() {
+    try { return JSON.parse(localStorage.getItem(EVENT_TRASH_KEY)) || []; } catch (e) { return []; }
+  }
+  function setEventTrash(list) {
+    localStorage.setItem(EVENT_TRASH_KEY, JSON.stringify(list));
+    refreshEventTrashButton();
+  }
+  function refreshEventTrashButton() {
+    var btn = $('event-trash-btn');
+    if (!btn) return;
+    var n = getEventTrash().length;
+    btn.textContent = '🗑️ אירועים שנמחקו' + (n ? ' (' + n + ')' : '');
+  }
   // Keeps the main "אירועים שמורים" list from growing forever - staff
   // saving a 6th+ event doesn't fail, it's just parked in the "📁 אירועים
   // שמורים בתיקייה" folder automatically instead (entry.archived: true),
@@ -812,9 +826,15 @@
     delBtn.className = 'btn btn-ghost';
     delBtn.innerHTML = '🗑️<span class="btn-icon-label">מחיקה</span>';
     delBtn.addEventListener('click', function () {
-      setSavedEvents(getSavedEvents().filter(function (e) { return e.name !== entry.name; }));
-      if (getActiveEventName() === entry.name) setActiveEventName('');
-      refreshBoth();
+      askConfirm('העברת אירוע לסל המחזור', 'להעביר את האירוע "' + entry.name + '" לסל המחזור? התמונות שלו לא נמחקות, ואפשר לשחזר את הכל מהסל.', 'כן, העבר', function () {
+        setSavedEvents(getSavedEvents().filter(function (e) { return e.name !== entry.name; }));
+        if (getActiveEventName() === entry.name) setActiveEventName('');
+        var trash = getEventTrash();
+        trash.push({ name: entry.name, setup: entry.setup, archived: !!entry.archived, deletedAt: Date.now() });
+        setEventTrash(trash);
+        refreshBoth();
+        toast('האירוע "' + entry.name + '" הועבר לסל המחזור');
+      });
     });
 
     topRow.appendChild(name);
@@ -858,6 +878,113 @@
       container.appendChild(buildSavedEventRow(entry, true));
     });
   }
+  function relativeTimeHe(ms) {
+    var mins = Math.round((Date.now() - ms) / 60000);
+    if (mins < 1) return 'ממש עכשיו';
+    if (mins < 60) return 'לפני ' + mins + ' דקות';
+    var hours = Math.round(mins / 60);
+    if (hours < 24) return 'לפני ' + hours + ' שעות';
+    return 'לפני ' + Math.round(hours / 24) + ' ימים';
+  }
+  function findEventNameCollision(name, exceptTrashIdx) {
+    if (getSavedEvents().some(function (e) { return e.name === name; })) return true;
+    return getEventTrash().some(function (e, i) { return e.name === name && i !== exceptTrashIdx; });
+  }
+  function restoreEventFromTrash(idx) {
+    var trash = getEventTrash();
+    var entry = trash[idx];
+    if (!entry) return;
+    var name = entry.name;
+    if (findEventNameCollision(name, idx)) {
+      var n = 2;
+      while (findEventNameCollision(name + ' (' + n + ')', idx)) n++;
+      name = name + ' (' + n + ')';
+    }
+    trash.splice(idx, 1);
+    setEventTrash(trash);
+    var list = getSavedEvents();
+    var goesToArchive = entry.archived || getMainSavedEvents(list).length >= MAX_MAIN_EVENTS;
+    list.push({ name: name, setup: entry.setup, archived: goesToArchive });
+    setSavedEvents(list);
+    renderSavedEventsList();
+    renderArchivedEventsList();
+    renderEventTrashList();
+    toast(name !== entry.name ? 'האירוע שוחזר בשם "' + name + '" (השם המקורי כבר תפוס)' : 'האירוע "' + name + '" שוחזר');
+  }
+  // Wipes the event's saved settings AND every one of its photos (including
+  // ones already sitting in the photo recycle bin) - unlike the per-photo
+  // trash, there is no further undo after this, matching what "לצמיתות"
+  // already means everywhere else in the app.
+  function permanentlyDeleteEventTrashEntry(idx) {
+    var trash = getEventTrash();
+    var entry = trash[idx];
+    if (!entry) return;
+    trash.splice(idx, 1);
+    setEventTrash(trash);
+    renderEventTrashList();
+    dbAll().then(function (rows) {
+      var renames = getEventRenames();
+      var ids = rows.filter(function (row) { return currentEventNameOf(row, renames) === entry.name; }).map(function (row) { return row.id; });
+      if (!ids.length) return;
+      return Promise.all(ids.map(function (id) { return dbDelete(id); })).then(function () { return dbTrashRemove(ids); });
+    }).then(function () { toast('האירוע "' + entry.name + '" ותמונותיו נמחקו לצמיתות'); });
+  }
+  function renderEventTrashList() {
+    var container = $('event-trash-list');
+    if (!container) return;
+    var list = getEventTrash();
+    container.innerHTML = '';
+    refreshEventTrashButton();
+    if (!list.length) {
+      var empty = document.createElement('p');
+      empty.className = 'design-hint';
+      empty.textContent = 'סל המחזור של האירועים ריק';
+      container.appendChild(empty);
+      return;
+    }
+    list.forEach(function (entry, idx) {
+      var row = document.createElement('div');
+      row.className = 'saved-event-row';
+      var topRow = document.createElement('div');
+      topRow.className = 'saved-event-row-top';
+      var name = document.createElement('span');
+      name.className = 'saved-event-name';
+      name.textContent = entry.name;
+      var when = document.createElement('span');
+      when.className = 'design-hint';
+      when.textContent = relativeTimeHe(entry.deletedAt);
+      topRow.appendChild(name);
+      topRow.appendChild(when);
+      var actionsRow = document.createElement('div');
+      actionsRow.className = 'saved-event-row-actions';
+      var restoreBtn = document.createElement('button');
+      restoreBtn.type = 'button';
+      restoreBtn.className = 'btn btn-ghost';
+      restoreBtn.innerHTML = '♻️<span class="btn-icon-label">שחזור</span>';
+      restoreBtn.addEventListener('click', function () { restoreEventFromTrash(idx); });
+      var delForeverBtn = document.createElement('button');
+      delForeverBtn.type = 'button';
+      delForeverBtn.className = 'btn btn-ghost';
+      delForeverBtn.innerHTML = '🗑️<span class="btn-icon-label">מחיקה לצמיתות</span>';
+      delForeverBtn.addEventListener('click', function () {
+        askConfirm('מחיקה לצמיתות', 'למחוק את האירוע "' + entry.name + '" ואת כל התמונות שלו לצמיתות? אי אפשר לשחזר את זה אחרי כן.', 'כן, מחק לצמיתות', function () {
+          permanentlyDeleteEventTrashEntry(idx);
+        });
+      });
+      actionsRow.appendChild(restoreBtn);
+      actionsRow.appendChild(delForeverBtn);
+      row.appendChild(topRow);
+      row.appendChild(actionsRow);
+      container.appendChild(row);
+    });
+  }
+  $('event-trash-btn').addEventListener('click', function () {
+    renderEventTrashList();
+    $('event-trash-panel').classList.add('active');
+  });
+  $('event-trash-close-btn').addEventListener('click', function () {
+    $('event-trash-panel').classList.remove('active');
+  });
   // Writes the CURRENT live setup (event info, print bridge, design,
   // background, capture mode) into the named event's saved slot -
   // creating it if it doesn't exist yet. Shared by the explicit "save
@@ -885,6 +1012,14 @@
   $('save-event-btn').addEventListener('click', function () {
     var name = $('save-event-name-input').value.trim();
     if (!name) { toast('תנו שם לאירוע'); return; }
+    // A brand new event reusing a name that's sitting in the event recycle bin
+    // would otherwise silently mix its photos in with the deleted event's -
+    // restore the old one from the trash instead, or pick a different name.
+    var isNewName = !getSavedEvents().some(function (e) { return e.name === name; });
+    if (isNewName && getEventTrash().some(function (e) { return e.name === name; })) {
+      toast('השם "' + name + '" שייך לאירוע שנמחק לאחרונה - שחזרו אותו מסל המחזור של האירועים, או בחרו שם אחר');
+      return;
+    }
     writeEventSnapshot(name);
     setActiveEventName(name);
     $('save-event-name-input').value = '';
@@ -2706,6 +2841,17 @@
   // the moment it was captured, silently ignoring every later edit.
   // Only possible for the guest's own just-taken photo (currentPhotoIsLive)
   // - an older gallery photo's raw frames aren't kept around.
+  // Greying the 3 full-resolution raw frames (a per-pixel pass over several
+  // thousand pixels wide) is real work - caching it against the exact frames
+  // it was made from means a reprint (or a color<->B&W switch back) only
+  // redoes the cheap compose-with-design step, not that grayscale pass again.
+  var grayFramesCache = { src: null, frames: null };
+  function grayscaleFramesFor(src) {
+    if (grayFramesCache.src === src) return grayFramesCache.frames;
+    var frames = Array.isArray(src) ? src.map(function (f) { return toGrayscaleCanvas(f); }) : toGrayscaleCanvas(src);
+    grayFramesCache = { src: src, frames: frames };
+    return frames;
+  }
   function recomposeCurrentPhotoFromDesign() {
     if (!currentPhotoIsLive) return Promise.resolve(currentBlob);
     var colorCanvas = captureMode === 'strip' ? composeStrip(lastStripFrames) : composeWide(lastWideFrame);
@@ -2715,8 +2861,8 @@
     // photo, not the white card/logo/text drawn around it.
     var bwCanvas = isBw
       ? (captureMode === 'strip'
-          ? composeStrip(lastStripFrames.map(function (f) { return toGrayscaleCanvas(f); }))
-          : composeWide(toGrayscaleCanvas(lastWideFrame)))
+          ? composeStrip(grayscaleFramesFor(lastStripFrames))
+          : composeWide(grayscaleFramesFor(lastWideFrame)))
       : null;
     return canvasToBlob(colorCanvas).then(function (colorBlob) {
       currentColorBlob = colorBlob;
@@ -2750,8 +2896,8 @@
   function saveBwCopyIfNeeded() {
     if (!isBw || bwCopySaved || !currentBlob) return;
     bwCopySaved = true;
-    var blob = currentBlob, rects = currentPhotoRects;
-    dbAdd(blob, null, rects).then(function (id) {
+    var blob = currentBlob, rects = currentPhotoRects, gif = currentPhotoIsLive ? currentGifBlob : null;
+    dbAdd(blob, gif, rects).then(function (id) {
       thumbFromBlob(blob).then(function (t) { dbPutThumb(id, t); }).catch(function () {});
     }).catch(function () { bwCopySaved = false; });
   }
@@ -3353,10 +3499,17 @@
     ctx.fillText(label, w / 2, h / 2);
     return c;
   }
+  // Off by default (shows the last real photo, as before); staff can flip it
+  // on to preview/export a design with plain placeholder photos - e.g. to
+  // send a client a sample of the text/logo layout without a real guest's
+  // face in it.
+  var designPreviewBlank = false;
   function previewStripFrames() {
+    if (designPreviewBlank) return [1, 2, 3].map(function (n) { return placeholderFrame(600, 800, String(n)); });
     return lastStripFrames || [1, 2, 3].map(function (n) { return placeholderFrame(600, 800, String(n)); });
   }
   function previewWideFrame() {
+    if (designPreviewBlank) return placeholderFrame(1080, 1440, 'תצוגה');
     return lastWideFrame || placeholderFrame(1080, 1440, 'תצוגה');
   }
 
@@ -3937,9 +4090,16 @@
     renderDesignPreview();
   }
 
+  $('design-blank-toggle').addEventListener('click', function () {
+    designPreviewBlank = !designPreviewBlank;
+    $('design-blank-toggle').classList.toggle('active', designPreviewBlank);
+    renderDesignPreview();
+  });
   $('design-editor-btn').addEventListener('click', function () {
     $('settings-panel').classList.remove('active');
     reopenSettingsAfterScreen = true;
+    designPreviewBlank = false;
+    $('design-blank-toggle').classList.remove('active');
     showScreen('screen-design');
     switchDesignTab(designTab);
   });
@@ -4892,29 +5052,30 @@
     $('remote-reset-btn').style.display = '';
   }
   var remoteQrFromSettings = false;
+  // Wipes what the current link left on the broker, and tells any phone still on it right
+  // now to disconnect - not just go quiet until it times out on its own. Snapshots the
+  // still-open connections and waits for the push to actually go out over them before the
+  // caller closes those sockets, instead of racing it. No-op if nothing is set up yet.
+  function revokeCurrentLink() {
+    if (!remoteCtx) return Promise.resolve();
+    var oldTopic = remoteCtx.topic;
+    var liveConns = remoteUpConns();
+    return remoteSeal('s', new TextEncoder().encode(JSON.stringify({ ts: Date.now(), revoked: 1 }))).then(function (sealed) {
+      liveConns.forEach(function (x) {
+        try {
+          x.c.publish(oldTopic + '/s', sealed, { qos: 0 });
+          x.c.publish(oldTopic + '/s', '', { qos: 0, retain: true });
+          x.c.publish(oldTopic + '/d', '', { qos: 0, retain: true });
+        } catch (e) {}
+      });
+    }).catch(function () {}).then(function () {
+      return new Promise(function (res) { setTimeout(res, 200); });
+    });
+  }
   function makeRemoteLink(fresh) {
     var run = function () {
       var secret = remoteSecret();
-      // Wipe what the old link left on the broker, and tell any phone still on it right
-      // now to disconnect - not just go quiet until it times out on its own. Snapshots
-      // the still-open connections and waits for the push to actually go out over them
-      // BEFORE remoteStop() below closes those sockets, instead of racing it.
-      var revokeStep = Promise.resolve();
-      if (fresh && remoteCtx) {
-        var oldTopic = remoteCtx.topic;
-        var liveConns = remoteUpConns();
-        revokeStep = remoteSeal('s', new TextEncoder().encode(JSON.stringify({ ts: Date.now(), revoked: 1 }))).then(function (sealed) {
-          liveConns.forEach(function (x) {
-            try {
-              x.c.publish(oldTopic + '/s', sealed, { qos: 0 });
-              x.c.publish(oldTopic + '/s', '', { qos: 0, retain: true });
-              x.c.publish(oldTopic + '/d', '', { qos: 0, retain: true });
-            } catch (e) {}
-          });
-        }).catch(function () {}).then(function () {
-          return new Promise(function (res) { setTimeout(res, 200); });
-        });
-      }
+      var revokeStep = fresh ? revokeCurrentLink() : Promise.resolve();
       if (!secret || fresh) {
         var a = new Uint8Array(16);
         crypto.getRandomValues(a);
@@ -4937,8 +5098,25 @@
     };
     if (adminPasswordMemory) run(); else openAdminModal(run);
   }
+  // Ends remote control for good (no phone stays connected, and the QR isn't reopened) -
+  // for when the owner is done using it. The next tap on "שליטה מהפלאפון" makes a brand
+  // new link from scratch, same as the very first time.
+  function disconnectRemote() {
+    var run = function () {
+      revokeCurrentLink().then(function () {
+        remoteStop();
+        localStorage.removeItem(REMOTE_SECRET_KEY);
+        localStorage.removeItem(REMOTE_SEED_KEY);
+        toast('השליטה מהפלאפון נותקה. כל הטלפונים המחוברים נסגרו.');
+      });
+    };
+    if (adminPasswordMemory) run(); else openAdminModal(run);
+  }
   $('remote-link-btn').addEventListener('click', function () { makeRemoteLink(false); });
   $('remote-reset-btn').addEventListener('click', function () { makeRemoteLink(true); });
+  $('remote-disconnect-btn').addEventListener('click', function () {
+    askConfirm('ניתוק שליטה מהפלאפון', 'לנתק את כל הטלפונים שמחוברים כרגע? יהיה צריך לסרוק QR חדש כדי להתחבר שוב.', 'כן, נתק', disconnectRemote);
+  });
   $('qr-close-btn').addEventListener('click', function () {
     $('remote-link-text').style.display = 'none';
     $('remote-reset-btn').style.display = 'none';
@@ -4953,6 +5131,7 @@
   // photo of the night already has them ready.
   preloadDesignImages(getStripDesign());
   preloadDesignImages(getWideDesign());
+  refreshEventTrashButton();
 
   // Keeps the iPad's screen from auto-locking while this app is open - it's a
   // staffed kiosk running non-stop through an event, and the screen dimming or
