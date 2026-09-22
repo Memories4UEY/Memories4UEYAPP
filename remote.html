@@ -50,7 +50,7 @@
   <div id="loginErr"></div>
 </div>
 <div id="app">
-  <div id="bar"><span id="dot"></span><span id="barText">מתחבר…</span><span id="tools"><button id="zOut" aria-label="הקטנה">−</button><button id="zIn" aria-label="הגדלה">+</button><button id="zFit" aria-label="התאמה למסך">⤢</button><button id="zPan" aria-label="הזזת התצוגה">✋</button></span></div>
+  <div id="bar"><span id="dot"></span><span id="barText">מתחבר…</span><span id="tools"><button id="zOut" aria-label="הקטנה">−</button><button id="zIn" aria-label="הגדלה">+</button><button id="zFit" aria-label="התאמה למסך">⤢</button></span></div>
   <div id="area">
     <div id="notice"></div>
     <div id="box">
@@ -198,7 +198,7 @@
     });
   }
   // ---------- zoom / pan of the copy ----------
-  var zoom = 1, panX = 0, panY = 0, panMode = false, baseK = 1;
+  var zoom = 1, panX = 0, panY = 0, baseK = 1;
   function layout() {
     var area = $('area');
     var aw = area.clientWidth, ah = area.clientHeight;
@@ -232,7 +232,6 @@
   $('zIn').addEventListener('click', function () { var a = $('area'); zoomAbout(zoom * 1.5, a.clientWidth / 2, a.clientHeight / 2); });
   $('zOut').addEventListener('click', function () { var a = $('area'); zoomAbout(zoom / 1.5, a.clientWidth / 2, a.clientHeight / 2); });
   $('zFit').addEventListener('click', function () { zoom = 1; panX = 0; panY = 0; layout(); });
-  $('zPan').addEventListener('click', function () { panMode = !panMode; $('zPan').className = panMode ? 'on' : ''; });
   function imgUrl(key) { return imgUrls[key] || ''; }
   function resolveMedia(root) {
     root.querySelectorAll('[src^="m4u:"]').forEach(function (el) {
@@ -521,7 +520,7 @@
   }
   var drag = null;
   var pts = {};     // every finger on the screen (area coordinates)
-  var pinch = null, panning = null;
+  var pinch = null;
   var extra = {};   // second finger while the first is forwarded raw (pinch)
   var touch = $('touch');
   function rawSend(t, pid, p) {
@@ -544,12 +543,6 @@
       return;
     }
     if (pinch) return;
-    if (panMode) {
-      var ap0 = pts[e.pointerId];
-      panning = { id: e.pointerId, x: ap0.x, y: ap0.y };
-      try { touch.setPointerCapture(e.pointerId); } catch (err) {}
-      return;
-    }
     var p = stagePoint(e);
     if (drag && drag.raw && !extra[e.pointerId]) {
       extra[e.pointerId] = { sent: 0 };
@@ -559,7 +552,7 @@
     }
     if (drag) return;
     var el = hitAt(p);
-    drag = { id: e.pointerId, sx: e.clientX, sy: e.clientY, ly: e.clientY, p: p, last: p, el: el, moved: false, acc: 0, sent: 0, raw: false,
+    drag = { id: e.pointerId, sx: e.clientX, sy: e.clientY, lx: e.clientX, ly: e.clientY, p: p, last: p, el: el, moved: false, acc: 0, sent: 0, raw: false, sc: null, pan: false,
              range: el && el.closest ? el.closest('input[type=range]') : null,
              dragx: el && el.closest ? !!el.closest('[data-m4u-dragx]') : false };
     if (el && el.closest && el.closest('[data-m4u-drag]') && !drag.range) { drag.raw = true; rawSend('pd', 0, p); }
@@ -571,13 +564,6 @@
     if (pinch && Object.keys(pts).length >= 2) {
       var s1 = pinchState();
       zoomAbout(pinch.z0 * (s1.d / pinch.d0), s1.cx, s1.cy, pinch.u, pinch.v);
-      return;
-    }
-    if (panning && e.pointerId === panning.id) {
-      var ap = areaPt(e);
-      panX += ap.x - panning.x; panY += ap.y - panning.y;
-      panning.x = ap.x; panning.y = ap.y;
-      layout();
       return;
     }
     if (extra[e.pointerId]) {
@@ -596,23 +582,34 @@
       if (Date.now() - drag.sent > 30) { drag.sent = Date.now(); rawSend('pm', 0, p); }
       return;
     }
-    var dx = e.clientX - drag.sx, dy = e.clientY - drag.ly;
-    if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) > 10) {
+    var dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+    if (!drag.moved && Math.hypot(dx, dy) > 10) {
       drag.moved = true;
       // A sideways drag over selectable tiles is "drag to select", not a scroll.
-      if (drag.dragx && Math.abs(e.clientX - drag.sx) > Math.abs(e.clientY - drag.sy)) {
+      if (drag.dragx && Math.abs(dx) > Math.abs(dy)) {
         drag.raw = true;
         rawSend('pd', 0, drag.p);
         rawSend('pm', 0, p);
         return;
       }
+      // Now that this is a real drag: scroll whatever is scrollable there (as on the
+      // iPad itself, any zoom level); only an empty, non-scrollable spot pans the view,
+      // and only while zoomed in - there's nothing to pan at the normal fit size.
+      var sc0 = scroller(drag.el);
+      if (sc0) drag.sc = sc0;
+      else if (zoom > 1.01) drag.pan = true;
     }
     if (!drag.moved) return;
-    drag.ly = e.clientY;
-    var sc = drag.el ? scroller(drag.el) : null;
-    if (!sc) return;
-    var d = -dy / scaleK;
-    sc.scrollTop += d;
+    var stepX = e.clientX - drag.lx, stepY = e.clientY - drag.ly;
+    drag.lx = e.clientX; drag.ly = e.clientY;
+    if (drag.pan) {
+      panX += stepX; panY += stepY;
+      layout();
+      return;
+    }
+    if (!drag.sc) return;
+    var d = -stepY / scaleK;
+    drag.sc.scrollTop += d;
     lastScrollAt = Date.now();
     drag.acc += d;
     if (Date.now() - drag.sent > 70) {
@@ -627,7 +624,6 @@
       if (Object.keys(pts).length < 2) { pinch = null; if (zoom < 1.12) { zoom = 1; panX = 0; panY = 0; layout(); } }
       return;
     }
-    if (panning && e.pointerId === panning.id) { panning = null; return; }
     if (extra[e.pointerId]) { var pe = stagePoint(e); rawSend('pm', 1, pe); rawSend('pu', 1, pe); delete extra[e.pointerId]; return; }
     if (!drag || e.pointerId !== drag.id) return;
     var d = drag; drag = null;
@@ -636,7 +632,7 @@
     if (d.range) { cmd({ t: 'range', x: pEnd.x, y: d.p.y }); return; }
     // the last move is sent again on release, so a fast flick ends exactly where the finger did
     if (d.raw) { rawSend('pm', 0, pEnd); rawSend('pu', 0, pEnd); return; }
-    if (d.moved) { if (d.acc) cmd({ t: 'scroll', x: d.p.x, y: d.p.y, dy: d.acc }); return; }
+    if (d.moved) { if (d.sc && d.acc) cmd({ t: 'scroll', x: d.p.x, y: d.p.y, dy: d.acc }); return; }
     if (e.type === 'pointercancel') return;
     tap(d.p, d.el);
   }
