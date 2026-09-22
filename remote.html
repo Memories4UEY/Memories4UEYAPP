@@ -22,8 +22,11 @@
   #bar { flex:none; display:flex; align-items:center; justify-content:center; gap:8px; padding:calc(6px + env(safe-area-inset-top)) 10px 6px; font-size:12px; color:var(--muted); background:var(--bg); text-align:center; }
   #dot { width:9px; height:9px; border-radius:50%; background:var(--bad); flex:none; }
   #dot.ok { background:var(--ok); }
-  #area { position:relative; flex:1; min-height:0; display:flex; align-items:flex-start; justify-content:center; overflow:hidden; }
-  #box { position:relative; overflow:hidden; direction:ltr; }
+  #area { position:relative; flex:1; min-height:0; overflow:hidden; }
+  #box { position:absolute; left:0; top:0; overflow:hidden; direction:ltr; }
+  #tools { display:flex; gap:6px; margin-inline-start:6px; }
+  #tools button { padding:4px 0; width:34px; height:28px; font-size:16px; line-height:1; border-radius:9px; }
+  #tools button.on { background:var(--gold); color:#1a1508; border-color:var(--gold); }
   #stage { position:absolute; left:0; top:0; border:0; display:block; transform-origin:top left; background:#000; pointer-events:none; }
   #touch { position:absolute; inset:0; touch-action:none; }
   #notice { position:absolute; left:0; right:0; top:0; z-index:5; display:none; padding:10px 14px; text-align:center; font-size:15px; line-height:1.4; background:rgba(12,12,14,.94); color:var(--text); border-bottom:1px solid #3a3a42; }
@@ -47,7 +50,7 @@
   <div id="loginErr"></div>
 </div>
 <div id="app">
-  <div id="bar"><span id="dot"></span><span id="barText">מתחבר…</span></div>
+  <div id="bar"><span id="dot"></span><span id="barText">מתחבר…</span><span id="tools"><button id="zOut" aria-label="הקטנה">−</button><button id="zIn" aria-label="הגדלה">+</button><button id="zFit" aria-label="התאמה למסך">⤢</button><button id="zPan" aria-label="הזזת התצוגה">✋</button></span></div>
   <div id="area">
     <div id="notice"></div>
     <div id="box">
@@ -194,19 +197,42 @@
       f.srcdoc = '<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="script-src \'none\'; form-action \'none\'; object-src \'none\'; frame-src \'none\'; connect-src \'none\'"><base href="' + base + '">' + head + '</head><body></body></html>';
     });
   }
+  // ---------- zoom / pan of the copy ----------
+  var zoom = 1, panX = 0, panY = 0, panMode = false, baseK = 1;
   function layout() {
     var area = $('area');
     var aw = area.clientWidth, ah = area.clientHeight;
     if (!aw || !ah) return;
-    scaleK = Math.min(aw / stageW, ah / stageH);
+    baseK = Math.min(aw / stageW, ah / stageH);
+    scaleK = baseK * zoom;
+    var w = Math.round(stageW * scaleK), h = Math.round(stageH * scaleK);
+    panX = w <= aw ? 0 : Math.min(0, Math.max(aw - w, panX));
+    panY = h <= ah ? 0 : Math.min(0, Math.max(ah - h, panY));
     var f = $('stage');
     f.style.width = stageW + 'px';
     f.style.height = stageH + 'px';
     f.style.transform = 'scale(' + scaleK + ')';
     var box = $('box');
-    box.style.width = Math.round(stageW * scaleK) + 'px';
-    box.style.height = Math.round(stageH * scaleK) + 'px';
+    box.style.width = w + 'px';
+    box.style.height = h + 'px';
+    box.style.left = (w <= aw ? Math.round((aw - w) / 2) : Math.round(panX)) + 'px';
+    box.style.top = (h <= ah ? 0 : Math.round(panY)) + 'px';
   }
+  // Zoom while keeping the picture point under (cx, cy) - given inside the area - in place.
+  function zoomAbout(z, cx, cy, u, v) {
+    z = Math.min(4, Math.max(1, z));
+    var box = $('box');
+    if (u == null) { u = (cx - box.offsetLeft) / scaleK; v = (cy - box.offsetTop) / scaleK; }
+    zoom = z;
+    scaleK = baseK * z;
+    panX = cx - u * scaleK;
+    panY = cy - v * scaleK;
+    layout();
+  }
+  $('zIn').addEventListener('click', function () { var a = $('area'); zoomAbout(zoom * 1.5, a.clientWidth / 2, a.clientHeight / 2); });
+  $('zOut').addEventListener('click', function () { var a = $('area'); zoomAbout(zoom / 1.5, a.clientWidth / 2, a.clientHeight / 2); });
+  $('zFit').addEventListener('click', function () { zoom = 1; panX = 0; panY = 0; layout(); });
+  $('zPan').addEventListener('click', function () { panMode = !panMode; $('zPan').className = panMode ? 'on' : ''; });
   function imgUrl(key) { return imgUrls[key] || ''; }
   function resolveMedia(root) {
     root.querySelectorAll('[src^="m4u:"]').forEach(function (el) {
@@ -494,12 +520,36 @@
     return null;
   }
   var drag = null;
+  var pts = {};     // every finger on the screen (area coordinates)
+  var pinch = null, panning = null;
   var extra = {};   // second finger while the first is forwarded raw (pinch)
   var touch = $('touch');
   function rawSend(t, pid, p) {
     cmd({ t: t, pid: pid, x: p.x, y: p.y });
   }
+  function areaPt(e) { var r = $('area').getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+  function pinchState() {
+    var k = Object.keys(pts);
+    var a = pts[k[0]], b = pts[k[1]];
+    return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
+  }
   touch.addEventListener('pointerdown', function (e) {
+    pts[e.pointerId] = areaPt(e);
+    if (Object.keys(pts).length === 2 && !(drag && drag.raw)) {
+      // two fingers = zoom and move the view (not a tap on the iPad)
+      drag = null;
+      var s0 = pinchState(), box0 = $('box');
+      pinch = { d0: s0.d, z0: zoom, u: (s0.cx - box0.offsetLeft) / scaleK, v: (s0.cy - box0.offsetTop) / scaleK };
+      try { touch.setPointerCapture(e.pointerId); } catch (err) {}
+      return;
+    }
+    if (pinch) return;
+    if (panMode) {
+      var ap0 = pts[e.pointerId];
+      panning = { id: e.pointerId, x: ap0.x, y: ap0.y };
+      try { touch.setPointerCapture(e.pointerId); } catch (err) {}
+      return;
+    }
     var p = stagePoint(e);
     if (drag && drag.raw && !extra[e.pointerId]) {
       extra[e.pointerId] = { sent: 0 };
@@ -517,6 +567,19 @@
     if (drag.range) cmd({ t: 'range', x: p.x, y: p.y });
   });
   touch.addEventListener('pointermove', function (e) {
+    if (pts[e.pointerId]) pts[e.pointerId] = areaPt(e);
+    if (pinch && Object.keys(pts).length >= 2) {
+      var s1 = pinchState();
+      zoomAbout(pinch.z0 * (s1.d / pinch.d0), s1.cx, s1.cy, pinch.u, pinch.v);
+      return;
+    }
+    if (panning && e.pointerId === panning.id) {
+      var ap = areaPt(e);
+      panX += ap.x - panning.x; panY += ap.y - panning.y;
+      panning.x = ap.x; panning.y = ap.y;
+      layout();
+      return;
+    }
     if (extra[e.pointerId]) {
       var ex = extra[e.pointerId];
       if (Date.now() - ex.sent > 30) { ex.sent = Date.now(); rawSend('pm', 1, stagePoint(e)); }
@@ -559,6 +622,12 @@
     }
   });
   function endDrag(e) {
+    delete pts[e.pointerId];
+    if (pinch) {
+      if (Object.keys(pts).length < 2) { pinch = null; if (zoom < 1.12) { zoom = 1; panX = 0; panY = 0; layout(); } }
+      return;
+    }
+    if (panning && e.pointerId === panning.id) { panning = null; return; }
     if (extra[e.pointerId]) { var pe = stagePoint(e); rawSend('pm', 1, pe); rawSend('pu', 1, pe); delete extra[e.pointerId]; return; }
     if (!drag || e.pointerId !== drag.id) return;
     var d = drag; drag = null;
@@ -581,8 +650,30 @@
     $('box').appendChild(r);
     setTimeout(function () { if (r.parentNode) r.parentNode.removeChild(r); }, 500);
   }
+  // A finger is bigger than the small controls of the copy: a tap that lands just beside a
+  // button (within ~18 screen pixels) counts for the nearest control that is really visible there.
+  var TAP_SELECTOR = 'button, a[href], input, select, textarea, label, [role=button], .gallery-item, .btn, .icon-btn, .fab-btn, .trash-view-btn';
+  function snapTarget(p, el) {
+    if (!stageDoc || (el && el.closest && el.closest(TAP_SELECTOR))) return null;
+    var tol = 18 / scaleK, best = null, bestD = 1e9;
+    var list = stageDoc.querySelectorAll(TAP_SELECTOR);
+    for (var i = 0; i < list.length; i++) {
+      var c = list[i], r = c.getBoundingClientRect();
+      if (!r.width || !r.height) continue;
+      var dx = Math.max(r.left - p.x, 0, p.x - r.right), dy = Math.max(r.top - p.y, 0, p.y - r.bottom);
+      var d = Math.hypot(dx, dy);
+      if (d > tol || d >= bestD) continue;
+      var cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      var hit = stageDoc.elementFromPoint(cx, cy);
+      if (!hit || !(c === hit || c.contains(hit))) continue;    // covered by something else right now
+      best = { el: c, x: cx, y: cy }; bestD = d;
+    }
+    return best;
+  }
   function tap(p, el) {
     ripple(p);
+    var sn = snapTarget(p, el);
+    if (sn) { p = { x: sn.x, y: sn.y, px: p.px, py: p.py }; el = sn.el; }
     var field = el && el.closest ? el.closest('input,textarea,select') : null;
     if (field) {
       var tag = field.tagName, ty = (field.getAttribute('type') || 'text').toLowerCase();
