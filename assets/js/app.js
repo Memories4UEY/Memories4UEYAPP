@@ -73,12 +73,12 @@
     document.querySelectorAll('.screen').forEach(function (s) { s.classList.remove('active'); });
     $(id).classList.add('active');
   }
-  function toast(msg) {
+  function toast(msg, ms) {
     var t = $('toast');
     t.textContent = msg;
     t.classList.add('show');
     clearTimeout(toast._t);
-    toast._t = setTimeout(function () { t.classList.remove('show'); }, 2600);
+    toast._t = setTimeout(function () { t.classList.remove('show'); }, ms || 2600);
   }
   function sha256Hex(text) {
     var enc = new TextEncoder().encode(text);
@@ -173,7 +173,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260922f';
+  var APP_VERSION = '20260923a';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -2823,7 +2823,7 @@
     clearTimeout(printBridgeAutosaveTimer);
     var hadValue = !!$('print-bridge-input').value.trim();
     commitPrintBridge();
-    toast(hadValue ? 'כתובת ההדפסה נשמרה' : 'חוזרים לתיבת ההדפסה הרגילה');
+    toast(hadValue ? 'כתובת ההדפסה נשמרה' : 'כתובת ההדפסה הוסרה');
     $('print-modal').classList.remove('active');
   });
   var printCopies = 1;
@@ -2918,8 +2918,7 @@
       saveBwCopyIfNeeded();
       var bridge = printBridgeUrl();
       if (!bridge) {
-        $('print-img').src = resultUrl;
-        window.print();
+        toast('לא הוזנה כתובת גשר הדפסה - יש להזין אותה בהגדרות ⚙️', 4500);
         return;
       }
       var copies = printCopies;
@@ -2931,9 +2930,7 @@
       chain.then(function () {
         toast('נשלח להדפסה');
       }).catch(function () {
-        toast('ההדפסה הישירה נכשלה, פותח את תיבת ההדפסה הרגילה');
-        $('print-img').src = resultUrl;
-        window.print();
+        toast('הגשר לא מגיב - יש לבדוק את כתובת הגשר בהגדרות ⚙️', 4500);
       });
     });
   }
