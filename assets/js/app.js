@@ -173,7 +173,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260923a';
+  var APP_VERSION = '20260924b';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -2209,6 +2209,12 @@
         $('camera-last-photo-thumb').src = resultThumbUrl;
       }).catch(function () {});
       $('camera-last-photo-group').style.display = '';
+      // Start uploading for QR sharing right away in the background, not
+      // only once the guest taps the QR button - on slow venue WiFi this
+      // gives the upload a head start (the time spent looking at the photo,
+      // printing, etc.) so by the time someone actually wants the QR it is
+      // often already there instantly instead of a fresh wait.
+      if (bridgeBase()) getQrUrlFor(blob).catch(function () {});
     }
     // Prev/next through the gallery (staff and guests browsing the album) -
     // never for a guest's own just-taken photo, which isn't part of a grid.
@@ -2672,31 +2678,63 @@
   // GIF one - the blob's own type (image/jpeg vs image/gif) is sent
   // as-is so the guest's phone gets it back correctly labeled instead
   // of every upload being hardcoded to image/jpeg.
+  //
+  // Retries with backoff on a flaky venue connection instead of giving up
+  // after one failed request, and is cached per exact blob (a WeakMap, so
+  // it never grows unbounded) so a photo already uploading/uploaded in the
+  // background (see the pre-upload call in openResult below) is reused
+  // instantly instead of re-sent - a guest who taps QR after even a bad
+  // connection has had a head start doesn't wait for the upload at all.
+  var qrUploadCache = new WeakMap();
+  function uploadPhotoForQr(blob) {
+    var base = bridgeBase();
+    if (!base) return Promise.reject(new Error('no-bridge'));
+    var delays = [0, 1500, 3500, 7000];
+    var attempt = 0;
+    function tryOnce() {
+      var thisAttempt = attempt++;
+      return new Promise(function (resolve) { setTimeout(resolve, delays[thisAttempt]); })
+        .then(function () {
+          return fetch(base + '/upload', {
+            method: 'POST',
+            headers: { 'Content-Type': blob.type || 'image/jpeg', 'X-Booth-Token': BOOTH_TOKEN },
+            body: blob
+          });
+        })
+        .then(function (res) {
+          if (!res.ok) throw new Error('upload failed: ' + res.status);
+          return res.json();
+        })
+        .then(function (data) { return base + '/photo/' + data.id; })
+        .catch(function (err) {
+          if (attempt >= delays.length) throw err;
+          return tryOnce();
+        });
+    }
+    return tryOnce();
+  }
+  function getQrUrlFor(blob) {
+    if (!qrUploadCache.has(blob)) qrUploadCache.set(blob, uploadPhotoForQr(blob));
+    return qrUploadCache.get(blob);
+  }
   function showQrFor(blob) {
     if (!blob) return;
     $('qr-panel').classList.add('active');
     $('qr-render').innerHTML = '';
-    var base = bridgeBase();
-    if (!base) {
+    if (!bridgeBase()) {
       $('qr-status').textContent = 'צריך קודם להגדיר את כתובת הגשר ב-⚙️ (אותה כתובת של ההדפסה).';
       return;
     }
     $('qr-status').textContent = 'מעלים…';
-    fetch(base + '/upload', {
-      method: 'POST',
-      headers: { 'Content-Type': blob.type || 'image/jpeg', 'X-Booth-Token': BOOTH_TOKEN },
-      body: blob
-    }).then(function (res) {
-      if (!res.ok) throw new Error('upload failed: ' + res.status);
-      return res.json();
-    }).then(function (data) {
-      var url = base + '/photo/' + data.id;
+    getQrUrlFor(blob).then(function (url) {
+      if (blob !== currentBlob && blob !== viewGifBlob && blob !== currentGifBlob) return;
       var qr = qrcode(0, 'M');
       qr.addData(url);
       qr.make();
       $('qr-render').innerHTML = qr.createSvgTag({ cellSize: 5, margin: 2 });
       $('qr-status').textContent = 'סרקו עם הטלפון כדי לשמור';
     }).catch(function () {
+      if (blob !== currentBlob && blob !== viewGifBlob && blob !== currentGifBlob) return;
       $('qr-status').textContent = 'שיתוף ה-QR לא זמין כרגע. אפשר לשתף ישירות מהכפתור "שיתוף".';
     });
   }
@@ -2836,14 +2874,32 @@
     $('copies-count').textContent = printCopies;
   });
 
+  // Same retry-with-backoff shape as uploadPhotoForQr above - a flaky venue
+  // connection gets a few automatic extra tries with growing gaps before
+  // this copy is actually reported as failed, instead of giving up on the
+  // very first hiccup.
   function sendOnePrint(bridge) {
-    return fetch(bridge, {
-      method: 'POST',
-      headers: { 'Content-Type': 'image/jpeg', 'X-Booth-Token': BOOTH_TOKEN },
-      body: currentBlob
-    }).then(function (res) {
-      if (!res.ok) throw new Error('print failed: ' + res.status);
-    });
+    var delays = [0, 1200, 2800, 5000];
+    var attempt = 0;
+    function tryOnce() {
+      var thisAttempt = attempt++;
+      return new Promise(function (resolve) { setTimeout(resolve, delays[thisAttempt]); })
+        .then(function () {
+          return fetch(bridge, {
+            method: 'POST',
+            headers: { 'Content-Type': 'image/jpeg', 'X-Booth-Token': BOOTH_TOKEN },
+            body: currentBlob
+          });
+        })
+        .then(function (res) {
+          if (!res.ok) throw new Error('print failed: ' + res.status);
+        })
+        .catch(function (err) {
+          if (attempt >= delays.length) throw err;
+          return tryOnce();
+        });
+    }
+    return tryOnce();
   }
 
   // Re-renders the currently viewed photo from its raw frame(s) against
