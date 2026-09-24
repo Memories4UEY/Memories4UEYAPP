@@ -173,7 +173,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260924b';
+  var APP_VERSION = '20260924h';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -2149,6 +2149,7 @@
   // album, so backing out of the album always lands there (whose back arrow
   // goes to the camera) instead of on whichever photo was opened last.
   var lastCapture = null;
+  var qrPreUploadTimer = null;
   function openResult(blob, fromCapture, gifBlob) {
     resultReturnScreen = fromCapture ? 'screen-camera' : 'screen-gallery';
     currentPhotoIsLive = !!fromCapture;
@@ -2209,12 +2210,30 @@
         $('camera-last-photo-thumb').src = resultThumbUrl;
       }).catch(function () {});
       $('camera-last-photo-group').style.display = '';
-      // Start uploading for QR sharing right away in the background, not
-      // only once the guest taps the QR button - on slow venue WiFi this
-      // gives the upload a head start (the time spent looking at the photo,
-      // printing, etc.) so by the time someone actually wants the QR it is
-      // often already there instantly instead of a fresh wait.
-      if (bridgeBase()) getQrUrlFor(blob).catch(function () {});
+    }
+    // Start uploading for QR sharing right away in the background, not only
+    // once someone taps the QR button - on slow venue WiFi this gives the
+    // upload a head start (the time spent looking at the photo, printing,
+    // etc.) so by the time QR is actually tapped it is often already there
+    // instantly instead of a fresh wait. Applies to a fresh capture AND a
+    // photo reopened from the gallery alike - "tap a guest's photo in the
+    // album, QR is basically already there" is the whole point, not just
+    // the guest's own just-taken shot.
+    clearTimeout(qrPreUploadTimer);
+    if (bridgeBase()) {
+      if (fromCapture) {
+        // Almost certainly about to be shared - no reason to wait.
+        getQrUrlFor(blob).catch(function () {});
+      } else {
+        // A gallery photo someone is just flipping past (prev/next arrows)
+        // shouldn't each kick off their own upload and fight each other
+        // for the same limited WiFi - only commit once this exact photo
+        // has stayed on screen for a moment, i.e. someone actually stopped
+        // on it.
+        qrPreUploadTimer = setTimeout(function () {
+          if (currentBlob === blob) getQrUrlFor(blob).catch(function () {});
+        }, 1200);
+      }
     }
     // Prev/next through the gallery (staff and guests browsing the album) -
     // never for a guest's own just-taken photo, which isn't part of a grid.
@@ -2720,11 +2739,15 @@
   function showQrFor(blob) {
     if (!blob) return;
     $('qr-panel').classList.add('active');
-    $('qr-render').innerHTML = '';
     if (!bridgeBase()) {
+      $('qr-render').innerHTML = '';
       $('qr-status').textContent = 'צריך קודם להגדיר את כתובת הגשר ב-⚙️ (אותה כתובת של ההדפסה).';
       return;
     }
+    // A visible spinner instead of just clearing the box - a static
+    // "מעלים…" with nothing moving on screen looks frozen on a slow
+    // connection even while the upload/retry is genuinely working.
+    $('qr-render').innerHTML = '<div class="qr-spinner"></div>';
     $('qr-status').textContent = 'מעלים…';
     getQrUrlFor(blob).then(function (url) {
       if (blob !== currentBlob && blob !== viewGifBlob && blob !== currentGifBlob) return;
@@ -4354,15 +4377,10 @@
     });
   });
 
-  // ---------- Export a specific event's photos as one PDF (to send to
-  // the event owner) - eventName defaults to whatever's active. ----------
-  // One page per photo, each page exactly the photo's own shape, with the
-  // photo's original JPEG bytes embedded untouched (no re-compression, no
-  // resizing) - so the PDF is exactly as sharp as the photos already are.
-  // It can't add detail a photo never had (see composeStrip's scale note).
-  // Written by hand rather than with a library: a PDF that just holds
-  // JPEGs is a few dozen lines, and the pieces are handed to Blob as-is so
-  // a large event never has to sit in memory as one giant array.
+  // asJpegBlob below normalizes any stored photo to a real JPEG before it
+  // goes into an export ZIP; imageSize is only needed for its rare
+  // non-JPEG fallback path (re-encoding via canvas), not for JPEGs
+  // themselves - those pass through untouched, bytes unchanged.
   function imageSize(blob) {
     return new Promise(function (resolve, reject) {
       var url = URL.createObjectURL(blob);
@@ -4392,6 +4410,39 @@
       });
     });
   }
+  // Runs `fn` over `items` with at most `limit` in flight at once, instead of
+  // an unbounded Promise.all - decoding dozens of full-resolution photos at
+  // the exact same moment (to read their pixel dimensions, or to re-encode a
+  // non-JPEG one) is what actually exhausts Safari's memory on a real event's
+  // worth of photos and crashes the whole tab, not any single photo alone.
+  function mapWithConcurrency(items, limit, fn) {
+    return new Promise(function (resolve, reject) {
+      var results = new Array(items.length);
+      var next = 0, active = 0, doneCount = 0;
+      if (!items.length) { resolve(results); return; }
+      function runMore() {
+        while (active < limit && next < items.length) {
+          (function (i) {
+            active++; next++;
+            fn(items[i]).then(function (r) {
+              results[i] = r; active--; doneCount++;
+              if (doneCount === items.length) resolve(results); else runMore();
+            }, reject);
+          })(next);
+        }
+      }
+      runMore();
+    });
+  }
+  // ---------- PDF export (one page per photo, straight to the device) ----------
+  // A whole event's worth of full-resolution photos combined into one PDF
+  // can reach several hundred MB - too big to reliably build, download or
+  // open as one file. Splitting into multiple PDFs by cumulative photo
+  // size (not just photo count, since a wide-mode event's photos are
+  // bigger than a strip one's) keeps every single file to a manageable
+  // size; reading each photo's pixel dimensions in small bounded batches
+  // (not all at once) is what actually keeps a big event from freezing
+  // Safari while building it.
   function buildPhotosPdf(blobs) {
     var enc = new TextEncoder();
     var parts = [];
@@ -4407,7 +4458,7 @@
     var kids = [];
     for (var i = 0; i < pageCount; i++) kids.push((3 + i * 3) + ' 0 R');
     startObj(2); text('<< /Type /Pages /Count ' + pageCount + ' /Kids [' + kids.join(' ') + '] >>\nendobj\n');
-    return Promise.all(blobs.map(function (b) { return imageSize(b); })).then(function (sizes) {
+    return mapWithConcurrency(blobs, 4, imageSize).then(function (sizes) {
       blobs.forEach(function (blob, i) {
         var pageN = 3 + i * 3, imgN = pageN + 1, contentN = pageN + 2;
         // 300 dpi: pixels -> points, so the page is the photo's real print size
@@ -4430,25 +4481,30 @@
       return new Blob(parts, { type: 'application/pdf' });
     });
   }
-  // Builds and downloads a PDF (one page per photo, oldest first) from the
-  // given gallery rows - used by both the whole-event export and the
-  // "export the selected photos" button.
   function exportRowsPdf(rows, fileName, onDone) {
     if (!rows.length) {
       toast('אין תמונות לייצוא');
       return;
     }
-    toast('מכין PDF...');
-    // oldest first, so page 1 is the first photo
+    // oldest first, so page 1 is the first photo. Always ONE file - the
+    // owner wants exactly that, one PDF on the iPad, no exceptions. The
+    // crash this used to cause on a big event came specifically from
+    // decoding every photo's pixel dimensions in one unbounded burst
+    // (see buildPhotosPdf/mapWithConcurrency above); reading them in small
+    // bounded batches instead is what actually prevents that, independent
+    // of whether the result stays one file - so this keeps that part.
     var ordered = rows.slice().sort(function (a, b) { return a.createdAt - b.createdAt; });
-    Promise.all(ordered.map(function (row) { return asJpegBlob(row.blob); })).then(buildPhotosPdf).then(function (pdf) {
-      var a = document.createElement('a');
-      a.href = URL.createObjectURL(pdf);
-      a.download = fileName;
-      a.click();
-      toast('ה-PDF מוכן - חפש את חץ ההורדות בסרגל העליון של ספארי כדי לפתוח אותו');
-      if (onDone) onDone();
-    }).catch(function () { toast('הייצוא נכשל - נסו שוב'); });
+    toast('מכין PDF...');
+    mapWithConcurrency(ordered, 4, function (row) { return asJpegBlob(row.blob); })
+      .then(buildPhotosPdf)
+      .then(function (pdf) {
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(pdf);
+        a.download = fileName;
+        a.click();
+        toast('ה-PDF מוכן - חפש את חץ ההורדות בסרגל העליון של ספארי כדי לפתוח אותו');
+        if (onDone) onDone();
+      }).catch(function () { toast('הייצוא נכשל - נסו שוב'); });
   }
   function exportEventPdf(eventName, onDone) {
     dbAllForEvent(eventName).then(function (rows) {
