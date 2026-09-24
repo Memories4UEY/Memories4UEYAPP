@@ -173,7 +173,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260924h';
+  var APP_VERSION = '20260924i';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -4435,48 +4435,84 @@
     });
   }
   // ---------- PDF export (one page per photo, straight to the device) ----------
-  // A whole event's worth of full-resolution photos combined into one PDF
-  // can reach several hundred MB - too big to reliably build, download or
-  // open as one file. Splitting into multiple PDFs by cumulative photo
-  // size (not just photo count, since a wide-mode event's photos are
-  // bigger than a strip one's) keeps every single file to a manageable
-  // size; reading each photo's pixel dimensions in small bounded batches
-  // (not all at once) is what actually keeps a big event from freezing
-  // Safari while building it.
+  // A grid of photos per page (like the in-app gallery), not one huge photo
+  // per page - reading each photo's pixel dimensions in small bounded
+  // batches (not all at once) is what actually keeps a big event from
+  // freezing Safari while building this, independent of the page layout.
+  // Every photo in one export shares the same capture mode (fixed for the
+  // whole event), so one aspect ratio works for every grid cell - no
+  // stretching, no mixed-shape awkwardness.
   function buildPhotosPdf(blobs) {
-    var enc = new TextEncoder();
-    var parts = [];
-    var offset = 0;
-    var offsets = [];
-    function push(part, len) { parts.push(part); offset += len; }
-    function text(s) { var b = enc.encode(s); push(b, b.length); }
-    function startObj(n) { offsets[n] = offset; text(n + ' 0 obj\n'); }
-    text('%PDF-1.4\n');
-    var pageCount = blobs.length;
-    // objects: 1 catalog, 2 pages, then per photo: page, image, content
-    startObj(1); text('<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
-    var kids = [];
-    for (var i = 0; i < pageCount; i++) kids.push((3 + i * 3) + ' 0 R');
-    startObj(2); text('<< /Type /Pages /Count ' + pageCount + ' /Kids [' + kids.join(' ') + '] >>\nendobj\n');
     return mapWithConcurrency(blobs, 4, imageSize).then(function (sizes) {
-      blobs.forEach(function (blob, i) {
-        var pageN = 3 + i * 3, imgN = pageN + 1, contentN = pageN + 2;
-        // 300 dpi: pixels -> points, so the page is the photo's real print size
-        var pw = (sizes[i].w * 72 / 300).toFixed(2), ph = (sizes[i].h * 72 / 300).toFixed(2);
-        startObj(pageN);
-        text('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' + pw + ' ' + ph + '] /Resources << /XObject << /Im0 ' + imgN + ' 0 R >> >> /Contents ' + contentN + ' 0 R >>\nendobj\n');
-        startObj(imgN);
-        text('<< /Type /XObject /Subtype /Image /Width ' + sizes[i].w + ' /Height ' + sizes[i].h + ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ' + blob.size + ' >>\nstream\n');
-        push(blob, blob.size);
-        text('\nendstream\nendobj\n');
-        var content = 'q ' + pw + ' 0 0 ' + ph + ' 0 0 cm /Im0 Do Q';
-        startObj(contentN);
+      var PAGE_W = 595.28, PAGE_H = 841.89; // A4 portrait, in points
+      var MARGIN = 28, GAP = 10;
+      var ratio = sizes[0].w / sizes[0].h; // width/height; <1 = tall (strip), >1 = wide
+      var cols = ratio < 1 ? 3 : 2;
+      var cellW = (PAGE_W - 2 * MARGIN - (cols - 1) * GAP) / cols;
+      var cellH = cellW / ratio;
+      var availH = PAGE_H - 2 * MARGIN;
+      var rows = Math.max(1, Math.floor((availH + GAP) / (cellH + GAP)));
+      var perPage = cols * rows;
+      var pageCount = Math.ceil(blobs.length / perPage);
+
+      var enc = new TextEncoder();
+      var parts = [];
+      var offset = 0;
+      var offsets = [];
+      function push(part, len) { parts.push(part); offset += len; }
+      function text(s) { var b = enc.encode(s); push(b, b.length); }
+      function startObj(n) { offsets[n] = offset; text(n + ' 0 obj\n'); }
+
+      text('%PDF-1.4\n');
+      startObj(1); text('<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
+
+      // Object numbers: 1=catalog, 2=pages, then per page: 1 page obj +
+      // one image obj per photo on it + 1 content-stream obj.
+      var objNum = 3;
+      var pages = [];
+      for (var p = 0; p < pageCount; p++) {
+        var start = p * perPage, end = Math.min(blobs.length, start + perPage);
+        var pageObjNum = objNum++;
+        var imgObjNums = [];
+        for (var k = start; k < end; k++) imgObjNums.push(objNum++);
+        var contentObjNum = objNum++;
+        pages.push({ pageObjNum: pageObjNum, imgObjNums: imgObjNums, contentObjNum: contentObjNum, start: start, end: end });
+      }
+
+      startObj(2);
+      text('<< /Type /Pages /Count ' + pageCount + ' /Kids [' + pages.map(function (pg) { return pg.pageObjNum + ' 0 R'; }).join(' ') + '] >>\nendobj\n');
+
+      pages.forEach(function (pg) {
+        var xobjEntries = pg.imgObjNums.map(function (num, i) { return '/Im' + i + ' ' + num + ' 0 R'; }).join(' ');
+        startObj(pg.pageObjNum);
+        text('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' + PAGE_W + ' ' + PAGE_H + '] /Resources << /XObject << ' + xobjEntries + ' >> >> /Contents ' + pg.contentObjNum + ' 0 R >>\nendobj\n');
+
+        for (var i = pg.start; i < pg.end; i++) {
+          var imgObjNum = pg.imgObjNums[i - pg.start];
+          startObj(imgObjNum);
+          text('<< /Type /XObject /Subtype /Image /Width ' + sizes[i].w + ' /Height ' + sizes[i].h + ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ' + blobs[i].size + ' >>\nstream\n');
+          push(blobs[i], blobs[i].size);
+          text('\nendstream\nendobj\n');
+        }
+
+        var ops = [];
+        for (var j = pg.start; j < pg.end; j++) {
+          var local = j - pg.start;
+          var col = local % cols, row = Math.floor(local / cols);
+          var x = MARGIN + col * (cellW + GAP);
+          var yTop = PAGE_H - MARGIN - row * (cellH + GAP);
+          var y = yTop - cellH;
+          ops.push('q ' + cellW.toFixed(2) + ' 0 0 ' + cellH.toFixed(2) + ' ' + x.toFixed(2) + ' ' + y.toFixed(2) + ' cm /Im' + local + ' Do Q');
+        }
+        var content = ops.join('\n');
+        startObj(pg.contentObjNum);
         text('<< /Length ' + content.length + ' >>\nstream\n' + content + '\nendstream\nendobj\n');
       });
-      var total = 3 + pageCount * 3;
+
+      var total = objNum;
       var xrefAt = offset;
       var xref = 'xref\n0 ' + total + '\n0000000000 65535 f \n';
-      for (var n = 1; n < total; n++) xref += ('0000000000' + offsets[n]).slice(-10) + ' 00000 n \n';
+      for (var n = 1; n < total; n++) xref += ('0000000000' + (offsets[n] || 0)).slice(-10) + ' 00000 n \n';
       text(xref + 'trailer\n<< /Size ' + total + ' /Root 1 0 R >>\nstartxref\n' + xrefAt + '\n%%EOF\n');
       return new Blob(parts, { type: 'application/pdf' });
     });
