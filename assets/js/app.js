@@ -173,7 +173,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260924i';
+  var APP_VERSION = '20260924j';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -4435,25 +4435,22 @@
     });
   }
   // ---------- PDF export (one page per photo, straight to the device) ----------
-  // A grid of photos per page (like the in-app gallery), not one huge photo
-  // per page - reading each photo's pixel dimensions in small bounded
-  // batches (not all at once) is what actually keeps a big event from
-  // freezing Safari while building this, independent of the page layout.
-  // Every photo in one export shares the same capture mode (fixed for the
-  // whole event), so one aspect ratio works for every grid cell - no
-  // stretching, no mixed-shape awkwardness.
+  // One photo per page - so saving/sharing any single page is always
+  // exactly one person's photo, never someone else's mixed in - but every
+  // page is now the SAME uniform size with the photo centered in a sensible
+  // margin, instead of each page being a different odd size shaped exactly
+  // to that one photo (which is what actually made scrolling through it
+  // feel disorganized). Reading each photo's pixel dimensions in small
+  // bounded batches (not all at once) is what actually keeps a big event
+  // from freezing Safari while building this, independent of page layout.
   function buildPhotosPdf(blobs) {
     return mapWithConcurrency(blobs, 4, imageSize).then(function (sizes) {
       var PAGE_W = 595.28, PAGE_H = 841.89; // A4 portrait, in points
-      var MARGIN = 28, GAP = 10;
-      var ratio = sizes[0].w / sizes[0].h; // width/height; <1 = tall (strip), >1 = wide
-      var cols = ratio < 1 ? 3 : 2;
-      var cellW = (PAGE_W - 2 * MARGIN - (cols - 1) * GAP) / cols;
-      var cellH = cellW / ratio;
-      var availH = PAGE_H - 2 * MARGIN;
-      var rows = Math.max(1, Math.floor((availH + GAP) / (cellH + GAP)));
-      var perPage = cols * rows;
-      var pageCount = Math.ceil(blobs.length / perPage);
+      var MARGIN = 40;
+      var cellW = PAGE_W - 2 * MARGIN;
+      var cellH = PAGE_H - 2 * MARGIN;
+      var perPage = 1;
+      var pageCount = blobs.length;
 
       var enc = new TextEncoder();
       var parts = [];
@@ -4498,11 +4495,15 @@
         var ops = [];
         for (var j = pg.start; j < pg.end; j++) {
           var local = j - pg.start;
-          var col = local % cols, row = Math.floor(local / cols);
-          var x = MARGIN + col * (cellW + GAP);
-          var yTop = PAGE_H - MARGIN - row * (cellH + GAP);
-          var y = yTop - cellH;
-          ops.push('q ' + cellW.toFixed(2) + ' 0 0 ' + cellH.toFixed(2) + ' ' + x.toFixed(2) + ' ' + y.toFixed(2) + ' cm /Im' + local + ' Do Q');
+          // "Contain" fit: scale to the photo's own aspect ratio so it
+          // never stretches, centered in the page's margin box.
+          var photoRatio = sizes[j].w / sizes[j].h;
+          var boxRatio = cellW / cellH;
+          var drawW = cellW, drawH = cellH;
+          if (photoRatio > boxRatio) { drawH = cellW / photoRatio; } else { drawW = cellH * photoRatio; }
+          var x = MARGIN + (cellW - drawW) / 2;
+          var y = MARGIN + (cellH - drawH) / 2;
+          ops.push('q ' + drawW.toFixed(2) + ' 0 0 ' + drawH.toFixed(2) + ' ' + x.toFixed(2) + ' ' + y.toFixed(2) + ' cm /Im' + local + ' Do Q');
         }
         var content = ops.join('\n');
         startObj(pg.contentObjNum);
