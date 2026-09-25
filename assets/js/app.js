@@ -173,7 +173,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260924j';
+  var APP_VERSION = '20260925a';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -4436,19 +4436,28 @@
   }
   // ---------- PDF export (one page per photo, straight to the device) ----------
   // One photo per page - so saving/sharing any single page is always
-  // exactly one person's photo, never someone else's mixed in - but every
-  // page is now the SAME uniform size with the photo centered in a sensible
-  // margin, instead of each page being a different odd size shaped exactly
-  // to that one photo (which is what actually made scrolling through it
-  // feel disorganized). Reading each photo's pixel dimensions in small
-  // bounded batches (not all at once) is what actually keeps a big event
-  // from freezing Safari while building this, independent of page layout.
+  // exactly one person's photo, never someone else's mixed in - and every
+  // page is the SAME uniform size (so scrolling through it feels organized),
+  // but that size is now shaped to the photos' own strip ratio instead of a
+  // fixed A4 sheet, so there's no big empty margin around a narrow strip.
+  // Reading each photo's pixel dimensions in small bounded batches (not all
+  // at once) is what actually keeps a big event from freezing Safari while
+  // building this, independent of page layout.
   function buildPhotosPdf(blobs) {
     return mapWithConcurrency(blobs, 4, imageSize).then(function (sizes) {
-      var PAGE_W = 595.28, PAGE_H = 841.89; // A4 portrait, in points
-      var MARGIN = 40;
-      var cellW = PAGE_W - 2 * MARGIN;
-      var cellH = PAGE_H - 2 * MARGIN;
+      var MARGIN = 16;
+      var MAX_EDGE = 700; // points; caps how big a page can get for a huge capture
+      // Every photo from one booth session shares the same capture shape, so
+      // size the page off the first photo at a print-quality 300dpi (pixels
+      // -> points is *72/300), then scale down only if that exceeds MAX_EDGE.
+      var nativeW = sizes[0].w * 72 / 300, nativeH = sizes[0].h * 72 / 300;
+      var longEdge = Math.max(nativeW, nativeH);
+      if (longEdge > MAX_EDGE) {
+        var scale = MAX_EDGE / longEdge;
+        nativeW *= scale; nativeH *= scale;
+      }
+      var cellW = nativeW, cellH = nativeH;
+      var PAGE_W = cellW + 2 * MARGIN, PAGE_H = cellH + 2 * MARGIN;
       var perPage = 1;
       var pageCount = blobs.length;
 
