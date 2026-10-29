@@ -173,7 +173,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20261029e';
+  var APP_VERSION = '20261029f';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -4632,15 +4632,29 @@
       toast('מכין תמונה 0...', 60000);
       buildPhotosZip(rows, function (msg) { toast(msg, 60000); })
         .then(function (zipBlob) {
-          var zipFile = new File([zipBlob], 'memories4u-' + (eventName || 'אירוע') + '.zip', { type: 'application/zip' });
+          // A plain ASCII filename, same as the working PDF export's -
+          // embedding the (Hebrew) event name here was almost certainly
+          // what broke the download: Safari silently drops a `download`
+          // attribute it can't honor and instead tries to NAVIGATE to the
+          // blob: URL as a page, which fails for a non-renderable zip with
+          // exactly the "WebKitBlobResource" error seen on a real device.
+          var zipFile = new File([zipBlob], 'memories4u-event-photos.zip', { type: 'application/zip' });
+          // Share first - it hands the File object to iOS directly, not
+          // through a blob: URL navigation, so it doesn't carry the same
+          // failure mode. The <a download> is the fallback, only used when
+          // the share sheet itself isn't available at all.
+          if (navigator.canShare && navigator.canShare({ files: [zipFile] })) {
+            toast('מוכן - בחרו איך לשמור או לשלוח את הקובץ', 4000);
+            navigator.share({ files: [zipFile], title: 'Memories4U' }).catch(function () {});
+            return;
+          }
           var a = document.createElement('a');
           a.href = URL.createObjectURL(zipBlob);
           a.download = zipFile.name;
+          document.body.appendChild(a);
           a.click();
+          a.remove();
           toast('הקובץ נשמר באפליקציית הקבצים - אפשר לשתף אותו משם ללקוח', 4500);
-          if (navigator.canShare && navigator.canShare({ files: [zipFile] })) {
-            navigator.share({ files: [zipFile], title: 'Memories4U' }).catch(function () {});
-          }
         }).catch(function () { toast('ההכנה נכשלה - נסו שוב'); });
     });
   }
