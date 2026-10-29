@@ -173,7 +173,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20261029c';
+  var APP_VERSION = '20261029d';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -4605,7 +4605,17 @@
       var total = ordered.length;
       var pad = String(total).length;
       toast('מכין תמונה 0 מתוך ' + total + '...', 60000);
-      mapWithConcurrency(ordered, 4, function (row) { return asJpegBlob(row.blob); }, function (done) {
+      // asJpegBlob is near-instant for a photo that's already a JPEG (just a
+      // 2-byte header check) - every photo in an event is, so without this
+      // yield, all the onProgress updates land as DOM writes between two
+      // browser paints and the screen only ever shows the very last one,
+      // looking exactly like "no progress bar ever appeared". A setTimeout
+      // (a real macrotask, unlike another .then()) forces an actual paint
+      // in between, so the count-up is genuinely visible.
+      function yieldToPaint() { return new Promise(function (r) { setTimeout(r, 0); }); }
+      mapWithConcurrency(ordered, 4, function (row) {
+        return asJpegBlob(row.blob).then(function (b) { return yieldToPaint().then(function () { return b; }); });
+      }, function (done) {
         toast('מכין תמונה ' + done + ' מתוך ' + total + '...', 60000);
       })
         .then(function (blobs) {
