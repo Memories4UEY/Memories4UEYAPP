@@ -173,7 +173,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20261029b';
+  var APP_VERSION = '20261029c';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -4447,7 +4447,7 @@
   // the exact same moment (to read their pixel dimensions, or to re-encode a
   // non-JPEG one) is what actually exhausts Safari's memory on a real event's
   // worth of photos and crashes the whole tab, not any single photo alone.
-  function mapWithConcurrency(items, limit, fn) {
+  function mapWithConcurrency(items, limit, fn, onProgress) {
     return new Promise(function (resolve, reject) {
       var results = new Array(items.length);
       var next = 0, active = 0, doneCount = 0;
@@ -4458,6 +4458,7 @@
             active++; next++;
             fn(items[i]).then(function (r) {
               results[i] = r; active--; doneCount++;
+              if (onProgress) onProgress(doneCount, items.length);
               if (doneCount === items.length) resolve(results); else runMore();
             }, reject);
           })(next);
@@ -4601,14 +4602,27 @@
     dbAllForEvent(eventName).then(function (rows) {
       if (!rows.length) { toast('אין תמונות לשמירה'); return; }
       var ordered = rows.slice().sort(function (a, b) { return a.createdAt - b.createdAt; });
-      toast('מכין את כל התמונות...');
-      mapWithConcurrency(ordered, 4, function (row) { return asJpegBlob(row.blob); })
+      var total = ordered.length;
+      var pad = String(total).length;
+      toast('מכין תמונה 0 מתוך ' + total + '...', 60000);
+      mapWithConcurrency(ordered, 4, function (row) { return asJpegBlob(row.blob); }, function (done) {
+        toast('מכין תמונה ' + done + ' מתוך ' + total + '...', 60000);
+      })
         .then(function (blobs) {
-          var files = blobs.map(function (b, i) { return new File([b], 'memories4u-' + (i + 1) + '.jpg', { type: 'image/jpeg' }); });
+          // Zero-padded filenames (memories4u-001.jpg, not -1.jpg) so a plain
+          // alphabetical sort can't put photo 10 before photo 2 - and an
+          // increasing lastModified per file, since Photos sorts a saved
+          // batch by that metadata rather than by array/file order. Together
+          // these are what actually keep the album in gallery order.
+          var files = blobs.map(function (b, i) {
+            var num = String(i + 1).padStart(pad, '0');
+            return new File([b], 'memories4u-' + num + '.jpg', { type: 'image/jpeg', lastModified: ordered[i].createdAt });
+          });
           if (!(navigator.canShare && navigator.canShare({ files: files }))) {
             toast('שמירה מרוכזת לא נתמכת במכשיר הזה - אפשר לייצא PDF במקום', 4000);
             return;
           }
+          toast('מוכן, בחרו "שמירת תמונות" בתפריט שנפתח', 4000);
           navigator.share({ files: files, title: 'Memories4U' }).catch(function () {});
         }).catch(function () { toast('ההכנה נכשלה - נסו שוב'); });
     });
