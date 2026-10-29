@@ -173,7 +173,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20261029l';
+  var APP_VERSION = '20261029n';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -629,12 +629,11 @@
     localStorage.setItem(ACTIVE_EVENT_KEY, name || '');
     var label = $('active-event-label');
     if (label) label.textContent = name ? ('📌 אירוע פעיל כרגע: ' + name) : 'לא נטען אירוע - צריך לטעון אחד';
-    // A zip prepared for one event must never get delivered after
+    // Chunks prepared for one event must never get delivered after
     // switching to a different one.
-    if (typeof pendingEventZip !== 'undefined' && pendingEventZip) {
-      pendingEventZip = null;
-      var btn = $('export-zip-btn');
-      if (btn) btn.classList.remove('pulse-ready');
+    if (typeof resetZipExport === 'function') {
+      var zipBtn = $('export-zip-btn');
+      if (zipBtn) resetZipExport(zipBtn);
     }
   }
 
@@ -3139,6 +3138,7 @@
         grid.appendChild(empty);
         return;
       }
+      if (!isGuestGallery && typeof prewarmZipExport === 'function') prewarmZipExport(getActiveEventName());
       updateSelectionButtons();
       dbAllThumbs().then(function (thumbs) {
         if (myGen !== galleryRenderGen) return;
@@ -3166,7 +3166,7 @@
             var d = new Date(row.createdAt);
             var dateLabel = document.createElement('div');
             dateLabel.className = 'gallery-item-date';
-            dateLabel.textContent = d.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' })
+            dateLabel.textContent = d.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' })
               + ' ' + d.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
             item.appendChild(dateLabel);
           }
@@ -4695,65 +4695,149 @@
   }
   $('export-all-btn').addEventListener('click', function () { exportEventPdf(getActiveEventName()); });
 
-  // ---------- Export the whole event as a ZIP ----------
-  // One reliable download (same category as the PDF export above, which has
-  // always worked) containing every photo as its own real file, zero-padded
-  // so the order inside it is exact and guaranteed - not an OS guess the
-  // way a multi-file Photos save is. The client extracts it on their own
-  // phone (iOS or Android both do this natively) and can save any photo
-  // individually from there. Two lessons from the last attempt, both
-  // confirmed causes of a real failure, baked in this time:
+  // ---------- Export the whole event as ZIPs, one chunk at a time ----------
+  // A real event (close to 100 full-resolution photos) building as ONE
+  // combined zip held the whole thing in memory at once - every photo's raw
+  // bytes, JSZip's own internal buffers, and the final compressed blob, all
+  // alive together - and that's heavy enough that iOS reclaimed memory from
+  // the page under pressure, which silently corrupted the app's in-memory
+  // state (the gallery looked empty until a full force-quit and relaunch;
+  // the photos themselves were always safe in IndexedDB, confirmed by that
+  // relaunch bringing everything back). Splitting into chunks - building
+  // and fully delivering ONE chunk's zip before even reading the next
+  // chunk's photos from the database - means only one chunk's worth of
+  // data is ever alive at a time, regardless of how big the whole event is.
+  // Two lessons from earlier attempts, still both required per chunk:
   // 1) A plain ASCII filename - a Hebrew event name in the filename is what
   //    made Safari drop the `download` attribute and try to navigate to the
-  //    blob as a page instead, which crashed with a "WebKitBlobResource"
-  //    error on a real device.
-  // 2) Share first, and only on a FRESH second tap - zip building takes
-  //    real seconds, and navigator.share() silently refuses to open if
-  //    called after the original tap's "this came from the user"
-  //    permission has expired, which is exactly what looked like "nothing
-  //    happens" before.
+  //    blob as a page instead ("WebKitBlobResource" error on a real device).
+  // 2) Share only on a FRESH tap - navigator.share() silently refuses once
+  //    the tap that triggered the work it followed is no longer "fresh"
+  //    enough, so every chunk needs its own confirming tap, not just the
+  //    first one.
+  var CHUNK_SIZE = 25;
+  var zipChunks = null;   // array of row-arrays still waiting to be built
+  var zipChunkNum = 0;    // 1-based index of the chunk currently prepared/delivered
+  var zipChunkTotal = 0;
   var pendingEventZip = null;
+  var zipBuilding = false;
+  var zipPrewarmedFor = null; // event name already prewarmed, so it isn't restarted on every render
+  var zipPrewarmedCount = 0;  // photo count it was prewarmed with - a new photo since then means it's stale
+  function resetZipExport(btn) {
+    zipChunks = null;
+    zipChunkNum = 0;
+    zipChunkTotal = 0;
+    pendingEventZip = null;
+    zipBuilding = false;
+    zipPrewarmedFor = null;
+    zipPrewarmedCount = 0;
+    btn.classList.remove('pulse-ready');
+  }
+  // Starts building the first chunk right away, before anyone has tapped
+  // anything - called once whenever the gallery opens on an event with
+  // photos. navigator.share() still needs a real tap to actually open (no
+  // way around that, it's an Apple rule, not something this app controls),
+  // but by starting the slow part (reading and compressing photos) early,
+  // the tap that matters usually lands on an already-finished file instead
+  // of having to wait for it - one tap in practice, even though a second,
+  // fresh tap is technically what opens the share sheet.
+  function prewarmZipExport(eventName) {
+    if (!eventName || zipBuilding) return; // never start a second build on top of one already running
+    dbAllForEvent(eventName).then(function (rows) {
+      // Already prewarmed for this exact event and photo count - nothing
+      // stale, leave it alone. Otherwise (a new photo taken since the last
+      // prewarm, or a different event) this run is stale, so it falls
+      // through and rebuilds instead of being skipped.
+      var upToDate = zipPrewarmedFor === eventName && zipPrewarmedCount === rows.length;
+      if (upToDate && pendingEventZip) return;
+      if (zipBuilding) return; // a render fired again while the query above was in flight
+      if (!rows.length) return;
+      zipPrewarmedFor = eventName;
+      zipPrewarmedCount = rows.length;
+      pendingEventZip = null;
+      var ordered = rows.slice().sort(function (a, b) { return a.createdAt - b.createdAt; });
+      zipChunks = [];
+      for (var i = 0; i < ordered.length; i += CHUNK_SIZE) zipChunks.push(ordered.slice(i, i + CHUNK_SIZE));
+      zipChunkTotal = zipChunks.length;
+      zipChunkNum = 0;
+      prepareNextZipChunk($('export-zip-btn'), true);
+    });
+  }
   function exportEventZip(eventName) {
     var btn = $('export-zip-btn');
     if (pendingEventZip) {
       var zipFile = pendingEventZip;
       pendingEventZip = null;
       btn.classList.remove('pulse-ready');
-      if (navigator.canShare && navigator.canShare({ files: [zipFile] })) {
-        navigator.share({ files: [zipFile], title: 'Memories4U' }).catch(function (e) {
-          if (e && e.name === 'AbortError') return;
-          toast('השיתוף נכשל, נסו שוב', 3200);
-        });
-        return;
-      }
-      var a = document.createElement('a');
-      a.href = URL.createObjectURL(zipFile);
-      a.download = zipFile.name;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      toast('הקובץ נשמר באפליקציית הקבצים - אפשר לשתף אותו משם ללקוח', 4500);
+      var deliver = function () {
+        if (navigator.canShare && navigator.canShare({ files: [zipFile] })) {
+          return navigator.share({ files: [zipFile], title: 'Memories4U' }).catch(function (e) {
+            if (e && e.name === 'AbortError') return;
+            toast('השיתוף נכשל, נסו שוב', 3200);
+          });
+        }
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(zipFile);
+        a.download = zipFile.name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        return Promise.resolve();
+      };
+      deliver().then(function () {
+        if (zipChunks && zipChunks.length) {
+          toast('חלק ' + zipChunkNum + ' מתוך ' + zipChunkTotal + ' נשלח - מכין את החלק הבא...', 4000);
+          prepareNextZipChunk(btn, true); // the next chunk also prepares itself quietly in the background
+        } else {
+          toast('כל התמונות נשלחו, ב-' + zipChunkTotal + ' קבצים', 4500);
+          resetZipExport(btn);
+        }
+      });
       return;
     }
+    if (zipBuilding) { toast('עדיין מכינים - הכפתור ידפוק כשמוכן', 3000); return; }
     btn.disabled = true;
     dbAllForEvent(eventName).then(function (rows) {
       if (!rows.length) { toast('אין תמונות לייצוא'); btn.disabled = false; return; }
-      toast('מכין תמונה 0...', 60000);
-      buildPhotosZip(rows, function (msg) { toast(msg, 60000); })
-        .then(function (zipBlob) {
-          pendingEventZip = new File([zipBlob], 'memories4u-event-photos.zip', { type: 'application/zip' });
-          btn.disabled = false;
-          btn.classList.add('pulse-ready');
-          toast('הקובץ מוכן - לחצו שוב על ZIP כדי לשמור או לשלוח', 8000);
-        }).catch(function () { toast('ההכנה נכשלה - נסו שוב'); btn.disabled = false; });
+      var ordered = rows.slice().sort(function (a, b) { return a.createdAt - b.createdAt; });
+      zipChunks = [];
+      for (var i = 0; i < ordered.length; i += CHUNK_SIZE) zipChunks.push(ordered.slice(i, i + CHUNK_SIZE));
+      zipChunkTotal = zipChunks.length;
+      zipChunkNum = 0;
+      prepareNextZipChunk(btn, false);
     });
   }
+  // `quiet` - true for background prep (prewarm, or the next chunk after
+  // one was just delivered) where there's no "preparing..." toast spam
+  // since no one is staring at the button waiting; false when a tap
+  // directly triggered this and the person is actively waiting on it.
+  function prepareNextZipChunk(btn, quiet) {
+    var chunk = zipChunks.shift();
+    zipChunkNum++;
+    zipBuilding = true;
+    btn.disabled = true;
+    var label = zipChunkTotal > 1 ? ('חלק ' + zipChunkNum + ' מתוך ' + zipChunkTotal) : 'הקובץ';
+    if (!quiet) toast('מכין ' + label + '...', 60000);
+    buildPhotosZip(chunk, function (msg) { if (!quiet) toast(label + ' - ' + msg, 60000); })
+      .then(function (zipBlob) {
+        var suffix = zipChunkTotal > 1 ? ('-חלק-' + zipChunkNum) : '';
+        pendingEventZip = new File([zipBlob], 'memories4u-event-photos' + suffix + '.zip', { type: 'application/zip' });
+        zipBuilding = false;
+        btn.disabled = false;
+        btn.classList.add('pulse-ready');
+        toast(label + ' מוכן - לחצו על ZIP כדי לשמור או לשלוח', 8000);
+      }).catch(function () {
+        zipBuilding = false;
+        if (!quiet) toast('ההכנה נכשלה - נסו שוב');
+        btn.disabled = false;
+      });
+  }
   function buildPhotosZip(rows, onProgress) {
-    var ordered = rows.slice().sort(function (a, b) { return a.createdAt - b.createdAt; });
-    var total = ordered.length;
+    // rows are already in the right order by the time they reach here.
+    var total = rows.length;
     var pad = String(total).length;
     function yieldToPaint() { return new Promise(function (r) { setTimeout(r, 0); }); }
-    return mapWithConcurrency(ordered, 4, function (row) {
+    return mapWithConcurrency(rows, 4, function (row) {
       return asJpegBlob(row.blob).then(function (b) { return yieldToPaint().then(function () { return b; }); });
     }, function (done) {
       if (onProgress) onProgress('מכין תמונה ' + done + ' מתוך ' + total + '...');
@@ -4764,7 +4848,7 @@
         zip.file('memories4u-' + num + '.jpg', b);
       });
       return zip.generateAsync({ type: 'blob' }, function (meta) {
-        if (onProgress) onProgress('דוחס לקובץ אחד... ' + Math.round(meta.percent) + '%');
+        if (onProgress) onProgress('דוחס... ' + Math.round(meta.percent) + '%');
       });
     });
   }
