@@ -173,7 +173,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20261029f';
+  var APP_VERSION = '20261029j';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -2170,9 +2170,11 @@
     $('btn-bw').classList.remove('active');
     if (resultUrl) URL.revokeObjectURL(resultUrl);
     resultUrl = URL.createObjectURL(blob);
-    $('result-canvas-view').src = resultUrl;
     var openedId = currentPhotoId;
+    // Attached before setting src, not after - so a failure can never
+    // fire before anything is listening for it.
     $('result-canvas-view').onerror = function () { recoverResultImage(blob, openedId); };
+    $('result-canvas-view').src = resultUrl;
     // The album shortcut belongs to the guest's own fresh photo only; on a
     // photo reached FROM a gallery, back already returns to that gallery.
     $('result-gallery-btn').parentNode.style.display = fromCapture ? '' : 'none';
@@ -2365,13 +2367,24 @@
   function recoverResultImage(blob, id) {
     var img = $('result-canvas-view');
     img.onerror = null;
+    // Last resort: the stored photo and its thumbnail are both unreadable.
+    // Previously this left the browser's own cryptic broken-image icon on
+    // screen with no explanation - now it's a clear message, so staff know
+    // this one specific photo is unrecoverable instead of wondering what
+    // they're looking at.
+    function giveUp() {
+      img.onerror = null;
+      img.removeAttribute('src');
+      toast('התמונה הזו פגומה ולא ניתן להציג אותה - אפשר למחוק אותה מהגלריה', 4500);
+    }
     function fallbackToThumb() {
       dbGetThumb(id).then(function (tb) {
-        if (!tb) return;
+        if (!tb) { giveUp(); return; }
         if (resultUrl) URL.revokeObjectURL(resultUrl);
         resultUrl = URL.createObjectURL(tb);
+        img.onerror = giveUp;
         img.src = resultUrl;
-      });
+      }).catch(giveUp);
     }
     blob.arrayBuffer().then(function (buf) {
       var copy = new Blob([buf], { type: blob.type || 'image/jpeg' });
@@ -3138,6 +3151,14 @@
           }
           item.appendChild(img);
           item._row = row;
+          if (row.createdAt) {
+            var d = new Date(row.createdAt);
+            var dateLabel = document.createElement('div');
+            dateLabel.className = 'gallery-item-date';
+            dateLabel.textContent = d.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' })
+              + ' ' + d.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+            item.appendChild(dateLabel);
+          }
           var check = null;
           if (gallerySelectMode) {
             check = document.createElement('div');
@@ -4591,74 +4612,6 @@
     });
   }
   $('export-all-btn').addEventListener('click', function () { exportEventPdf(getActiveEventName()); });
-
-  // ---------- Save all to a ZIP (guaranteed order, ready to forward) ----------
-  // A real device test showed the Photos app's own multi-file "Save Images"
-  // has NO guaranteed order - not controllable by filename, not by
-  // File.lastModified, confirmed against WebKit's own source and bug
-  // tracker, Apple's docs, and the Web Share spec (which explicitly leaves
-  // file handling "at the discretion" of the OS). There is no way to fix
-  // that from a web page. A ZIP sidesteps it entirely: it's ONE file, so
-  // there's no OS multi-file black box involved - the order inside it is
-  // exactly the order its entries were written in, which is under our
-  // control, every time. It downloads straight into the iPad's Files app
-  // (confirmed behavior for a plain download, unlike Photos), and because
-  // it's a single file, the same share sheet that can't order many photos
-  // has no trouble at all handing off one zip straight to a guest or
-  // client's chat of choice.
-  function buildPhotosZip(rows, onProgress) {
-    var ordered = rows.slice().sort(function (a, b) { return a.createdAt - b.createdAt; });
-    var total = ordered.length;
-    var pad = String(total).length;
-    function yieldToPaint() { return new Promise(function (r) { setTimeout(r, 0); }); }
-    return mapWithConcurrency(ordered, 4, function (row) {
-      return asJpegBlob(row.blob).then(function (b) { return yieldToPaint().then(function () { return b; }); });
-    }, function (done) {
-      if (onProgress) onProgress('מכין תמונה ' + done + ' מתוך ' + total + '...');
-    }).then(function (blobs) {
-      var zip = new JSZip();
-      blobs.forEach(function (b, i) {
-        var num = String(i + 1).padStart(pad, '0');
-        zip.file('memories4u-' + num + '.jpg', b);
-      });
-      return zip.generateAsync({ type: 'blob' }, function (meta) {
-        if (onProgress) onProgress('דוחס לקובץ אחד... ' + Math.round(meta.percent) + '%');
-      });
-    });
-  }
-  function saveAllToAlbum(eventName) {
-    dbAllForEvent(eventName).then(function (rows) {
-      if (!rows.length) { toast('אין תמונות לשמירה'); return; }
-      toast('מכין תמונה 0...', 60000);
-      buildPhotosZip(rows, function (msg) { toast(msg, 60000); })
-        .then(function (zipBlob) {
-          // A plain ASCII filename, same as the working PDF export's -
-          // embedding the (Hebrew) event name here was almost certainly
-          // what broke the download: Safari silently drops a `download`
-          // attribute it can't honor and instead tries to NAVIGATE to the
-          // blob: URL as a page, which fails for a non-renderable zip with
-          // exactly the "WebKitBlobResource" error seen on a real device.
-          var zipFile = new File([zipBlob], 'memories4u-event-photos.zip', { type: 'application/zip' });
-          // Share first - it hands the File object to iOS directly, not
-          // through a blob: URL navigation, so it doesn't carry the same
-          // failure mode. The <a download> is the fallback, only used when
-          // the share sheet itself isn't available at all.
-          if (navigator.canShare && navigator.canShare({ files: [zipFile] })) {
-            toast('מוכן - בחרו איך לשמור או לשלוח את הקובץ', 4000);
-            navigator.share({ files: [zipFile], title: 'Memories4U' }).catch(function () {});
-            return;
-          }
-          var a = document.createElement('a');
-          a.href = URL.createObjectURL(zipBlob);
-          a.download = zipFile.name;
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          toast('הקובץ נשמר באפליקציית הקבצים - אפשר לשתף אותו משם ללקוח', 4500);
-        }).catch(function () { toast('ההכנה נכשלה - נסו שוב'); });
-    });
-  }
-  $('save-all-album-btn').addEventListener('click', function () { saveAllToAlbum(getActiveEventName()); });
 
   // ---------- Phone remote control (live mirror) ----------
   // The staff phone (remote.html) shows an exact copy of this screen and every
