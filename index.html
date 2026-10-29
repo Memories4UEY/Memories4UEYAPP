@@ -22,7 +22,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="assets/css/style.css?v=20261029n">
+<link rel="stylesheet" href="assets/css/style.css?v=20261029q">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Dancing+Script:wght@600&family=Playfair+Display:ital@1&family=Amatic+SC:wght@700&family=Caveat:wght@600&family=Cormorant+Garamond:ital@1&family=Suez+One&family=Frank+Ruhl+Libre:ital,wght@0,500;1,500&family=Bellefair&family=Miriam+Libre:wght@700&family=Secular+One&family=Heebo:wght@700&family=David+Libre:wght@700&family=Alex+Brush&family=Allura&family=Parisienne&family=Tangerine:wght@700&family=Pinyon+Script&family=Mrs+Saint+Delafield&family=Sacramento&family=Yellowtail&display=swap">
 <style>
   html, body {
@@ -482,8 +482,13 @@
   }
   .trash-viewer .icon-btn { width: 44px; height: 44px; flex-shrink: 0; border-radius: 50%; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-gold); display: flex; align-items: center; justify-content: center; font-size: 22px; cursor: pointer; }
   .icon-btn-spacer { width: 40px; height: 40px; flex-shrink: 0; }
-  .pulse-ready { animation: btn-pulse 1s ease-in-out infinite; border-color: var(--color-gold) !important; }
-  @keyframes btn-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(217,198,150,.55); } 50% { box-shadow: 0 0 0 7px rgba(217,198,150,0); } }
+  /* Still building, running quietly in the background - gold pulse. */
+  .zip-building { animation: btn-pulse-gold 1s ease-in-out infinite; border-color: var(--color-gold) !important; }
+  @keyframes btn-pulse-gold { 0%, 100% { box-shadow: 0 0 0 0 rgba(217,198,150,.55); } 50% { box-shadow: 0 0 0 7px rgba(217,198,150,0); } }
+  /* File is ready and waiting for the tap that delivers it - solid green,
+     unmistakably different from the gold "still working" pulse. */
+  .pulse-ready { animation: btn-pulse-green 1s ease-in-out infinite; border-color: #4caf50 !important; background: rgba(76,175,80,.18) !important; color: #7ddc81 !important; }
+  @keyframes btn-pulse-green { 0%, 100% { box-shadow: 0 0 0 0 rgba(76,175,80,.55); } 50% { box-shadow: 0 0 0 7px rgba(76,175,80,0); } }
   .topbar-actions { display: flex; align-items: flex-start; gap: 8px; }
   .topbar-actions .icon-btn:disabled { opacity: .35; cursor: default; }
   .icon-btn-group { display: flex; flex-direction: column; align-items: center; gap: 3px; }
@@ -845,6 +850,7 @@
     text-align: center;
     white-space: nowrap;
     pointer-events: none;
+    direction: ltr; /* without this, RTL bidi reorders date vs time between each other */
   }
   .trash-event {
     position: absolute; left: 0; right: 0; bottom: 0;
@@ -1743,7 +1749,6 @@
 <script src="assets/js/qrcode-generator.js"></script>
 <script src="assets/js/gifenc.js"></script>
 <script src="assets/js/mqtt.min.js?v=1"></script>
-<script src="assets/js/jszip.min.js"></script>
-<script src="assets/js/app.js?v=20261029n"></script>
+<script src="assets/js/app.js?v=20261029q"></script>
 </body>
 </html>

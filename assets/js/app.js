@@ -173,7 +173,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20261029n';
+  var APP_VERSION = '20261029q';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -4715,7 +4715,14 @@
   //    the tap that triggered the work it followed is no longer "fresh"
   //    enough, so every chunk needs its own confirming tap, not just the
   //    first one.
-  var CHUNK_SIZE = 25;
+  // The chunking machinery stays in place as a safety net, but the limit
+  // itself is now high enough that any realistic event is one chunk - the
+  // hand-written zip writer above (see buildPhotosZip) is the real fix for
+  // the memory problem, replacing JSZip with the same low-overhead
+  // Blob-concatenation pattern the PDF export already proved safe on this
+  // exact ~100-photo real event. If a future event is ever large enough to
+  // need splitting again, lowering this is still a one-line change.
+  var CHUNK_SIZE = 10000;
   var zipChunks = null;   // array of row-arrays still waiting to be built
   var zipChunkNum = 0;    // 1-based index of the chunk currently prepared/delivered
   var zipChunkTotal = 0;
@@ -4731,7 +4738,7 @@
     zipBuilding = false;
     zipPrewarmedFor = null;
     zipPrewarmedCount = 0;
-    btn.classList.remove('pulse-ready');
+    btn.classList.remove('pulse-ready', 'zip-building');
   }
   // Starts building the first chunk right away, before anyone has tapped
   // anything - called once whenever the gallery opens on an event with
@@ -4795,7 +4802,7 @@
       });
       return;
     }
-    if (zipBuilding) { toast('עדיין מכינים - הכפתור ידפוק כשמוכן', 3000); return; }
+    if (zipBuilding) { toast('עדיין מכינים - הכפתור יהפוך לירוק כשמוכן', 3000); return; }
     btn.disabled = true;
     dbAllForEvent(eventName).then(function (rows) {
       if (!rows.length) { toast('אין תמונות לייצוא'); btn.disabled = false; return; }
@@ -4815,7 +4822,9 @@
     var chunk = zipChunks.shift();
     zipChunkNum++;
     zipBuilding = true;
-    btn.disabled = true;
+    btn.disabled = false; // stays tappable while gold - a tap just reports "still working"
+    btn.classList.remove('pulse-ready');
+    btn.classList.add('zip-building');
     var label = zipChunkTotal > 1 ? ('חלק ' + zipChunkNum + ' מתוך ' + zipChunkTotal) : 'הקובץ';
     if (!quiet) toast('מכין ' + label + '...', 60000);
     buildPhotosZip(chunk, function (msg) { if (!quiet) toast(label + ' - ' + msg, 60000); })
@@ -4823,14 +4832,45 @@
         var suffix = zipChunkTotal > 1 ? ('-חלק-' + zipChunkNum) : '';
         pendingEventZip = new File([zipBlob], 'memories4u-event-photos' + suffix + '.zip', { type: 'application/zip' });
         zipBuilding = false;
-        btn.disabled = false;
+        btn.classList.remove('zip-building');
         btn.classList.add('pulse-ready');
-        toast(label + ' מוכן - לחצו על ZIP כדי לשמור או לשלוח', 8000);
+        toast(label + ' מוכן - הכפתור ירוק, לחצו עליו כדי לשמור או לשלוח', 8000);
       }).catch(function () {
         zipBuilding = false;
+        btn.classList.remove('zip-building');
         if (!quiet) toast('ההכנה נכשלה - נסו שוב');
-        btn.disabled = false;
       });
+  }
+  // A hand-written ZIP writer (local file headers + central directory +
+  // end record, "stored"/uncompressed - these are already-compressed JPEGs,
+  // so real compression would barely shrink them anyway) instead of a
+  // general-purpose library. The point isn't the format, it's memory: each
+  // photo's decoded bytes only exist long enough to compute its CRC32, then
+  // get dropped - only the small CRC number and the original Blob
+  // (reference only, not materialized bytes) are kept around afterward, and
+  // the Blob itself is pushed straight into the final Blob's parts array,
+  // exactly the same low-memory pattern the PDF export already uses safely
+  // on a full ~100-photo real event. A library that needs real byte arrays
+  // for every file to run its own compression/bookkeeping can't do that.
+  var CRC_TABLE = (function () {
+    var t = [];
+    for (var n = 0; n < 256; n++) {
+      var c = n;
+      for (var k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      t[n] = c >>> 0;
+    }
+    return t;
+  })();
+  function crc32(bytes) {
+    var crc = 0xFFFFFFFF;
+    for (var i = 0; i < bytes.length; i++) crc = CRC_TABLE[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
+  function dosDateTime(d) {
+    return {
+      time: ((d.getHours() & 0x1F) << 11) | ((d.getMinutes() & 0x3F) << 5) | ((d.getSeconds() >> 1) & 0x1F),
+      date: (((d.getFullYear() - 1980) & 0x7F) << 9) | (((d.getMonth() + 1) & 0xF) << 5) | (d.getDate() & 0x1F)
+    };
   }
   function buildPhotosZip(rows, onProgress) {
     // rows are already in the right order by the time they reach here.
@@ -4838,18 +4878,78 @@
     var pad = String(total).length;
     function yieldToPaint() { return new Promise(function (r) { setTimeout(r, 0); }); }
     return mapWithConcurrency(rows, 4, function (row) {
-      return asJpegBlob(row.blob).then(function (b) { return yieldToPaint().then(function () { return b; }); });
+      return asJpegBlob(row.blob).then(function (blob) {
+        return blob.arrayBuffer().then(function (buf) {
+          var bytes = new Uint8Array(buf);
+          var entry = { blob: blob, size: blob.size, crc: crc32(bytes) };
+          return yieldToPaint().then(function () { return entry; }); // bytes/buf fall out of scope here
+        });
+      });
     }, function (done) {
       if (onProgress) onProgress('מכין תמונה ' + done + ' מתוך ' + total + '...');
-    }).then(function (blobs) {
-      var zip = new JSZip();
-      blobs.forEach(function (b, i) {
+    }).then(function (entries) {
+      var enc = new TextEncoder();
+      var parts = [];
+      var offset = 0;
+      function push(part, len) { parts.push(part); offset += len; }
+      var dt = dosDateTime(new Date());
+      var central = [];
+      entries.forEach(function (e, i) {
         var num = String(i + 1).padStart(pad, '0');
-        zip.file('memories4u-' + num + '.jpg', b);
+        var nameBytes = enc.encode('memories4u-' + num + '.jpg');
+        var localOffset = offset;
+        var h = new DataView(new ArrayBuffer(30));
+        h.setUint32(0, 0x04034b50, true);
+        h.setUint16(4, 20, true);
+        h.setUint16(6, 0, true);
+        h.setUint16(8, 0, true);
+        h.setUint16(10, dt.time, true);
+        h.setUint16(12, dt.date, true);
+        h.setUint32(14, e.crc, true);
+        h.setUint32(18, e.size, true);
+        h.setUint32(22, e.size, true);
+        h.setUint16(26, nameBytes.length, true);
+        h.setUint16(28, 0, true);
+        push(new Uint8Array(h.buffer), 30);
+        push(nameBytes, nameBytes.length);
+        push(e.blob, e.size);
+        central.push({ name: nameBytes, crc: e.crc, size: e.size, localOffset: localOffset });
       });
-      return zip.generateAsync({ type: 'blob' }, function (meta) {
-        if (onProgress) onProgress('דוחס... ' + Math.round(meta.percent) + '%');
+      var centralStart = offset;
+      central.forEach(function (ce) {
+        var ch = new DataView(new ArrayBuffer(46));
+        ch.setUint32(0, 0x02014b50, true);
+        ch.setUint16(4, 20, true);
+        ch.setUint16(6, 20, true);
+        ch.setUint16(8, 0, true);
+        ch.setUint16(10, 0, true);
+        ch.setUint16(12, dt.time, true);
+        ch.setUint16(14, dt.date, true);
+        ch.setUint32(16, ce.crc, true);
+        ch.setUint32(20, ce.size, true);
+        ch.setUint32(24, ce.size, true);
+        ch.setUint16(28, ce.name.length, true);
+        ch.setUint16(30, 0, true);
+        ch.setUint16(32, 0, true);
+        ch.setUint16(34, 0, true);
+        ch.setUint16(36, 0, true);
+        ch.setUint32(38, 0, true);
+        ch.setUint32(42, ce.localOffset, true);
+        push(new Uint8Array(ch.buffer), 46);
+        push(ce.name, ce.name.length);
       });
+      var centralSize = offset - centralStart;
+      var eocd = new DataView(new ArrayBuffer(22));
+      eocd.setUint32(0, 0x06054b50, true);
+      eocd.setUint16(4, 0, true);
+      eocd.setUint16(6, 0, true);
+      eocd.setUint16(8, central.length, true);
+      eocd.setUint16(10, central.length, true);
+      eocd.setUint32(12, centralSize, true);
+      eocd.setUint32(16, centralStart, true);
+      eocd.setUint16(20, 0, true);
+      push(new Uint8Array(eocd.buffer), 22);
+      return new Blob(parts, { type: 'application/zip' });
     });
   }
   $('export-zip-btn').addEventListener('click', function () { exportEventZip(getActiveEventName()); });
