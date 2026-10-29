@@ -173,7 +173,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20261029k';
+  var APP_VERSION = '20261029l';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -629,6 +629,13 @@
     localStorage.setItem(ACTIVE_EVENT_KEY, name || '');
     var label = $('active-event-label');
     if (label) label.textContent = name ? ('📌 אירוע פעיל כרגע: ' + name) : 'לא נטען אירוע - צריך לטעון אחד';
+    // A zip prepared for one event must never get delivered after
+    // switching to a different one.
+    if (typeof pendingEventZip !== 'undefined' && pendingEventZip) {
+      pendingEventZip = null;
+      var btn = $('export-zip-btn');
+      if (btn) btn.classList.remove('pulse-ready');
+    }
   }
 
   // ---------- Saved events (prepare several events in advance, switch
@@ -4687,6 +4694,81 @@
     });
   }
   $('export-all-btn').addEventListener('click', function () { exportEventPdf(getActiveEventName()); });
+
+  // ---------- Export the whole event as a ZIP ----------
+  // One reliable download (same category as the PDF export above, which has
+  // always worked) containing every photo as its own real file, zero-padded
+  // so the order inside it is exact and guaranteed - not an OS guess the
+  // way a multi-file Photos save is. The client extracts it on their own
+  // phone (iOS or Android both do this natively) and can save any photo
+  // individually from there. Two lessons from the last attempt, both
+  // confirmed causes of a real failure, baked in this time:
+  // 1) A plain ASCII filename - a Hebrew event name in the filename is what
+  //    made Safari drop the `download` attribute and try to navigate to the
+  //    blob as a page instead, which crashed with a "WebKitBlobResource"
+  //    error on a real device.
+  // 2) Share first, and only on a FRESH second tap - zip building takes
+  //    real seconds, and navigator.share() silently refuses to open if
+  //    called after the original tap's "this came from the user"
+  //    permission has expired, which is exactly what looked like "nothing
+  //    happens" before.
+  var pendingEventZip = null;
+  function exportEventZip(eventName) {
+    var btn = $('export-zip-btn');
+    if (pendingEventZip) {
+      var zipFile = pendingEventZip;
+      pendingEventZip = null;
+      btn.classList.remove('pulse-ready');
+      if (navigator.canShare && navigator.canShare({ files: [zipFile] })) {
+        navigator.share({ files: [zipFile], title: 'Memories4U' }).catch(function (e) {
+          if (e && e.name === 'AbortError') return;
+          toast('השיתוף נכשל, נסו שוב', 3200);
+        });
+        return;
+      }
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(zipFile);
+      a.download = zipFile.name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      toast('הקובץ נשמר באפליקציית הקבצים - אפשר לשתף אותו משם ללקוח', 4500);
+      return;
+    }
+    btn.disabled = true;
+    dbAllForEvent(eventName).then(function (rows) {
+      if (!rows.length) { toast('אין תמונות לייצוא'); btn.disabled = false; return; }
+      toast('מכין תמונה 0...', 60000);
+      buildPhotosZip(rows, function (msg) { toast(msg, 60000); })
+        .then(function (zipBlob) {
+          pendingEventZip = new File([zipBlob], 'memories4u-event-photos.zip', { type: 'application/zip' });
+          btn.disabled = false;
+          btn.classList.add('pulse-ready');
+          toast('הקובץ מוכן - לחצו שוב על ZIP כדי לשמור או לשלוח', 8000);
+        }).catch(function () { toast('ההכנה נכשלה - נסו שוב'); btn.disabled = false; });
+    });
+  }
+  function buildPhotosZip(rows, onProgress) {
+    var ordered = rows.slice().sort(function (a, b) { return a.createdAt - b.createdAt; });
+    var total = ordered.length;
+    var pad = String(total).length;
+    function yieldToPaint() { return new Promise(function (r) { setTimeout(r, 0); }); }
+    return mapWithConcurrency(ordered, 4, function (row) {
+      return asJpegBlob(row.blob).then(function (b) { return yieldToPaint().then(function () { return b; }); });
+    }, function (done) {
+      if (onProgress) onProgress('מכין תמונה ' + done + ' מתוך ' + total + '...');
+    }).then(function (blobs) {
+      var zip = new JSZip();
+      blobs.forEach(function (b, i) {
+        var num = String(i + 1).padStart(pad, '0');
+        zip.file('memories4u-' + num + '.jpg', b);
+      });
+      return zip.generateAsync({ type: 'blob' }, function (meta) {
+        if (onProgress) onProgress('דוחס לקובץ אחד... ' + Math.round(meta.percent) + '%');
+      });
+    });
+  }
+  $('export-zip-btn').addEventListener('click', function () { exportEventZip(getActiveEventName()); });
 
   // ---------- Phone remote control (live mirror) ----------
   // The staff phone (remote.html) shows an exact copy of this screen and every
