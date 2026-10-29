@@ -173,7 +173,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20260925a';
+  var APP_VERSION = '20261029b';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -2651,9 +2651,23 @@
       $('result-canvas-view').src = resultUrl;
       btn.classList.toggle('active', isBw);
       btn.disabled = false;
+      refreshOpenGifPanel();
     }).catch(function () {
       btn.disabled = false;
+      toast('שחור־לבן נכשל, נסו שוב', 3200);
     });
+  }
+  // Refreshes an already-open GIF viewer to match the current B&W state -
+  // without this, toggling B&W after opening the GIF left the panel (and
+  // anything shared from it) showing the color version it was opened with.
+  function refreshOpenGifPanel() {
+    if (!$('gif-panel').classList.contains('active')) return;
+    getGifForSharing().then(function (blob) {
+      viewGifBlob = blob;
+      if (resultGifUrl) URL.revokeObjectURL(resultGifUrl);
+      resultGifUrl = URL.createObjectURL(blob);
+      $('gif-view').src = resultGifUrl;
+    }).catch(function () {});
   }
   $('btn-bw').addEventListener('click', function () {
     if (!currentColorBlob) return;
@@ -2663,7 +2677,17 @@
     if (!goingToBw || bwBlobCache) { bwToggleSimple(btn); return; }
     isBw = true;
     btn.classList.add('active');
-    var full = grayscaleComposedPhoto();
+    // One retry before giving up - a single getImageData/toBlob hiccup
+    // under memory pressure (a busy event, lots of photos) is usually
+    // transient, and silently falling back to color with no explanation
+    // looked to a guest/staff member like B&W "just didn't work".
+    function attemptGrayscale(retriesLeft) {
+      return grayscaleComposedPhoto().catch(function (e) {
+        if (retriesLeft > 0) return attemptGrayscale(retriesLeft - 1);
+        throw e;
+      });
+    }
+    var full = attemptGrayscale(1);
     bwPending = full;
     quickBwPreview().then(function (pb) {
       if (isBw && currentColorBlob === colorBlob && !bwBlobCache) showResultBlob(pb);
@@ -2678,14 +2702,22 @@
       btn.classList.remove('active');
       currentBlob = colorBlob;
       showResultBlob(colorBlob);
+      toast('שחור־לבן נכשל, נשארנו בצבע. נסו שוב', 3200);
     }).then(function () { if (bwPending === full) bwPending = null; });
-    // The GIF's B&W version, only rebuildable for a photo just taken.
+    // The GIF's B&W version, only rebuildable for a photo just taken - a
+    // gallery-reopened photo keeps its saved color GIF even once the still
+    // photo goes B&W, since its raw shots aren't available to recompose.
     if (currentColorGifBlob && currentPhotoIsLive) {
       composeGif(lastStripFrames, true).then(function (g) {
         if (currentColorBlob !== colorBlob) return;
         bwGifBlobCache = g;
-        if (isBw) currentGifBlob = g;
-      }).catch(function () {});
+        if (isBw) { currentGifBlob = g; refreshOpenGifPanel(); }
+      }).catch(function () {
+        if (currentColorBlob !== colorBlob) return;
+        toast('ה-GIF בשחור־לבן נכשל, נשאר צבעוני', 3200);
+      });
+    } else if (!currentPhotoIsLive && currentColorGifBlob) {
+      toast('תמונה מהגלריה, ה-GIF נשאר בצבע (רק התמונה עצמה הופכת לשחור־לבן)', 3600);
     }
   });
 
@@ -4558,6 +4590,30 @@
     });
   }
   $('export-all-btn').addEventListener('click', function () { exportEventPdf(getActiveEventName()); });
+
+  // ---------- Save all to the device's own Photos album ----------
+  // iOS Safari has no silent/automatic way for a website to write straight
+  // into Photos (that's a native-app-only permission, for privacy reasons) -
+  // but the share sheet's own "Save Images" action, given every photo as a
+  // file in one navigator.share() call, saves all of them in a single tap.
+  // That's the closest a web app can get to Lumabooth's native auto-save.
+  function saveAllToAlbum(eventName) {
+    dbAllForEvent(eventName).then(function (rows) {
+      if (!rows.length) { toast('אין תמונות לשמירה'); return; }
+      var ordered = rows.slice().sort(function (a, b) { return a.createdAt - b.createdAt; });
+      toast('מכין את כל התמונות...');
+      mapWithConcurrency(ordered, 4, function (row) { return asJpegBlob(row.blob); })
+        .then(function (blobs) {
+          var files = blobs.map(function (b, i) { return new File([b], 'memories4u-' + (i + 1) + '.jpg', { type: 'image/jpeg' }); });
+          if (!(navigator.canShare && navigator.canShare({ files: files }))) {
+            toast('שמירה מרוכזת לא נתמכת במכשיר הזה - אפשר לייצא PDF במקום', 4000);
+            return;
+          }
+          navigator.share({ files: files, title: 'Memories4U' }).catch(function () {});
+        }).catch(function () { toast('ההכנה נכשלה - נסו שוב'); });
+    });
+  }
+  $('save-all-album-btn').addEventListener('click', function () { saveAllToAlbum(getActiveEventName()); });
 
   // ---------- Phone remote control (live mirror) ----------
   // The staff phone (remote.html) shows an exact copy of this screen and every
