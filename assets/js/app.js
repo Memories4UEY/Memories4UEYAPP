@@ -173,7 +173,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20261029q';
+  var APP_VERSION = '20261029r';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -3166,8 +3166,16 @@
             var d = new Date(row.createdAt);
             var dateLabel = document.createElement('div');
             dateLabel.className = 'gallery-item-date';
-            dateLabel.textContent = d.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' })
-              + ' ' + d.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+            // Two lines, not one long one - squeezed onto a single nowrap
+            // line in a narrow tile, the date+time string was wider than
+            // the tile and the overflow (the time) got silently clipped by
+            // the tile's own overflow:hidden. Two short lines always fit.
+            var dateLine = document.createElement('div');
+            dateLine.textContent = d.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' });
+            var timeLine = document.createElement('div');
+            timeLine.textContent = d.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+            dateLabel.appendChild(dateLine);
+            dateLabel.appendChild(timeLine);
             item.appendChild(dateLabel);
           }
           var check = null;
