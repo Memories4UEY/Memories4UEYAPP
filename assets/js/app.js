@@ -173,7 +173,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20261029d';
+  var APP_VERSION = '20261029e';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -4592,48 +4592,55 @@
   }
   $('export-all-btn').addEventListener('click', function () { exportEventPdf(getActiveEventName()); });
 
-  // ---------- Save all to the device's own Photos album ----------
-  // iOS Safari has no silent/automatic way for a website to write straight
-  // into Photos (that's a native-app-only permission, for privacy reasons) -
-  // but the share sheet's own "Save Images" action, given every photo as a
-  // file in one navigator.share() call, saves all of them in a single tap.
-  // That's the closest a web app can get to Lumabooth's native auto-save.
+  // ---------- Save all to a ZIP (guaranteed order, ready to forward) ----------
+  // A real device test showed the Photos app's own multi-file "Save Images"
+  // has NO guaranteed order - not controllable by filename, not by
+  // File.lastModified, confirmed against WebKit's own source and bug
+  // tracker, Apple's docs, and the Web Share spec (which explicitly leaves
+  // file handling "at the discretion" of the OS). There is no way to fix
+  // that from a web page. A ZIP sidesteps it entirely: it's ONE file, so
+  // there's no OS multi-file black box involved - the order inside it is
+  // exactly the order its entries were written in, which is under our
+  // control, every time. It downloads straight into the iPad's Files app
+  // (confirmed behavior for a plain download, unlike Photos), and because
+  // it's a single file, the same share sheet that can't order many photos
+  // has no trouble at all handing off one zip straight to a guest or
+  // client's chat of choice.
+  function buildPhotosZip(rows, onProgress) {
+    var ordered = rows.slice().sort(function (a, b) { return a.createdAt - b.createdAt; });
+    var total = ordered.length;
+    var pad = String(total).length;
+    function yieldToPaint() { return new Promise(function (r) { setTimeout(r, 0); }); }
+    return mapWithConcurrency(ordered, 4, function (row) {
+      return asJpegBlob(row.blob).then(function (b) { return yieldToPaint().then(function () { return b; }); });
+    }, function (done) {
+      if (onProgress) onProgress('מכין תמונה ' + done + ' מתוך ' + total + '...');
+    }).then(function (blobs) {
+      var zip = new JSZip();
+      blobs.forEach(function (b, i) {
+        var num = String(i + 1).padStart(pad, '0');
+        zip.file('memories4u-' + num + '.jpg', b);
+      });
+      return zip.generateAsync({ type: 'blob' }, function (meta) {
+        if (onProgress) onProgress('דוחס לקובץ אחד... ' + Math.round(meta.percent) + '%');
+      });
+    });
+  }
   function saveAllToAlbum(eventName) {
     dbAllForEvent(eventName).then(function (rows) {
       if (!rows.length) { toast('אין תמונות לשמירה'); return; }
-      var ordered = rows.slice().sort(function (a, b) { return a.createdAt - b.createdAt; });
-      var total = ordered.length;
-      var pad = String(total).length;
-      toast('מכין תמונה 0 מתוך ' + total + '...', 60000);
-      // asJpegBlob is near-instant for a photo that's already a JPEG (just a
-      // 2-byte header check) - every photo in an event is, so without this
-      // yield, all the onProgress updates land as DOM writes between two
-      // browser paints and the screen only ever shows the very last one,
-      // looking exactly like "no progress bar ever appeared". A setTimeout
-      // (a real macrotask, unlike another .then()) forces an actual paint
-      // in between, so the count-up is genuinely visible.
-      function yieldToPaint() { return new Promise(function (r) { setTimeout(r, 0); }); }
-      mapWithConcurrency(ordered, 4, function (row) {
-        return asJpegBlob(row.blob).then(function (b) { return yieldToPaint().then(function () { return b; }); });
-      }, function (done) {
-        toast('מכין תמונה ' + done + ' מתוך ' + total + '...', 60000);
-      })
-        .then(function (blobs) {
-          // Zero-padded filenames (memories4u-001.jpg, not -1.jpg) so a plain
-          // alphabetical sort can't put photo 10 before photo 2 - and an
-          // increasing lastModified per file, since Photos sorts a saved
-          // batch by that metadata rather than by array/file order. Together
-          // these are what actually keep the album in gallery order.
-          var files = blobs.map(function (b, i) {
-            var num = String(i + 1).padStart(pad, '0');
-            return new File([b], 'memories4u-' + num + '.jpg', { type: 'image/jpeg', lastModified: ordered[i].createdAt });
-          });
-          if (!(navigator.canShare && navigator.canShare({ files: files }))) {
-            toast('שמירה מרוכזת לא נתמכת במכשיר הזה - אפשר לייצא PDF במקום', 4000);
-            return;
+      toast('מכין תמונה 0...', 60000);
+      buildPhotosZip(rows, function (msg) { toast(msg, 60000); })
+        .then(function (zipBlob) {
+          var zipFile = new File([zipBlob], 'memories4u-' + (eventName || 'אירוע') + '.zip', { type: 'application/zip' });
+          var a = document.createElement('a');
+          a.href = URL.createObjectURL(zipBlob);
+          a.download = zipFile.name;
+          a.click();
+          toast('הקובץ נשמר באפליקציית הקבצים - אפשר לשתף אותו משם ללקוח', 4500);
+          if (navigator.canShare && navigator.canShare({ files: [zipFile] })) {
+            navigator.share({ files: [zipFile], title: 'Memories4U' }).catch(function () {});
           }
-          toast('מוכן, בחרו "שמירת תמונות" בתפריט שנפתח', 4000);
-          navigator.share({ files: files, title: 'Memories4U' }).catch(function () {});
         }).catch(function () { toast('ההכנה נכשלה - נסו שוב'); });
     });
   }
