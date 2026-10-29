@@ -173,7 +173,7 @@
   // "🔄 רענון" button in settings - staff asked for this to be something
   // THEY trigger on purpose after uploading an update, not something the
   // app decides to do on its own.
-  var APP_VERSION = '20261029j';
+  var APP_VERSION = '20261029k';
   function checkForFreshVersion(manual) {
     if (/[?&]_fresh=/.test(location.search)) return;
     if (manual) toast('בודק אם יש עדכון…');
@@ -3085,6 +3085,7 @@
   var reopenSettingsAfterScreen = false;
   var gallerySelectMode = false;
   var gallerySelectedIds = {};
+  var pendingSaveSelected = null; // files prepared and waiting for a confirming second tap
 
   function openGallery(returnTo) {
     if (returnTo) galleryReturnScreen = returnTo;
@@ -3140,8 +3141,10 @@
           var isSelected = !!gallerySelectedIds[row.id];
           var item = document.createElement('div');
           item.className = 'gallery-item' + (gallerySelectMode && isSelected ? ' selected' : '');
+          var photoWrap = document.createElement('div');
+          photoWrap.className = 'gallery-item-photo';
           var img = document.createElement('img');
-          fitTileToPhoto(item, img, row);
+          fitTileToPhoto(photoWrap, img, row);
           if (thumbs[row.id]) {
             var url = URL.createObjectURL(thumbs[row.id]);
             galleryThumbUrls.push(url);
@@ -3149,7 +3152,8 @@
           } else {
             enqueueThumb(row, img);
           }
-          item.appendChild(img);
+          photoWrap.appendChild(img);
+          item.appendChild(photoWrap);
           item._row = row;
           if (row.createdAt) {
             var d = new Date(row.createdAt);
@@ -3164,7 +3168,7 @@
             check = document.createElement('div');
             check.className = 'gallery-check';
             check.textContent = isSelected ? '✓' : '';
-            item.appendChild(check);
+            photoWrap.appendChild(check);
             item._check = check;
           }
           item.addEventListener('click', function () {
@@ -3198,6 +3202,7 @@
   function updateSelectionButtons() {
     var selectedCount = Object.keys(gallerySelectedIds).length;
     $('gallery-share-selected-btn').innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px" aria-hidden="true"><path d="M4 11v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8"/><path d="M12 15V3"/><path d="M7 8l5-5 5 5"/></svg> PDF (' + selectedCount + ')';
+    if (!pendingSaveSelected) $('gallery-save-selected-btn').textContent = '💾 שמירה (' + selectedCount + ')';
     $('gallery-delete-selected-btn').textContent = '🗑️ מחק (' + selectedCount + ')';
     $('gallery-select-all-btn').textContent = galleryRows.length && selectedCount === galleryRows.length ? 'בטל הכל' : 'בחר הכל';
     // A clear running count in the title while selecting (the buttons carry it
@@ -3212,6 +3217,12 @@
     if (on) gallerySelectedIds[row.id] = row.blob; else delete gallerySelectedIds[row.id];
     item.classList.toggle('selected', on);
     if (item._check) item._check.textContent = on ? '✓' : '';
+    // A changed selection invalidates any files already prepared for the
+    // old one - a stale pending save must never be delivered.
+    if (pendingSaveSelected) {
+      pendingSaveSelected = null;
+      $('gallery-save-selected-btn').classList.remove('pulse-ready');
+    }
   }
   $('gallery-select-all-btn').addEventListener('click', function () {
     var allSelected = galleryRows.length && Object.keys(gallerySelectedIds).length === galleryRows.length;
@@ -3356,11 +3367,15 @@
   $('gallery-select-btn').addEventListener('click', function () {
     gallerySelectMode = !gallerySelectMode;
     gallerySelectedIds = {};
+    pendingSaveSelected = null;
+    $('gallery-save-selected-btn').classList.remove('pulse-ready');
     renderGalleryGrid();
   });
   $('gallery-cancel-select-btn').addEventListener('click', function () {
     gallerySelectMode = false;
     gallerySelectedIds = {};
+    pendingSaveSelected = null;
+    $('gallery-save-selected-btn').classList.remove('pulse-ready');
     renderGalleryGrid();
   });
   // An on-page confirmation instead of the system confirm(): a system dialog is
@@ -3413,6 +3428,66 @@
     var chosen = galleryRows.filter(function (row) { return gallerySelectedIds[row.id]; });
     if (!chosen.length) { toast('לא סימנתם תמונות'); return; }
     exportRowsPdf(chosen, 'memories4u-selected-photos.pdf');
+  });
+  // Saves the selected photos as real, separate image files via the share
+  // sheet's own "Save Images" - not a PDF, not a zip, straight into
+  // Photos/Files. navigator.share() only works when called directly inside
+  // a real tap (the browser's "this came from the user" permission expires
+  // fast), and preparing the files takes a moment, so - same fix as the
+  // earlier zip attempt - this is a two-tap flow: one tap prepares, a
+  // second, fresh tap on the now-pulsing button actually delivers it.
+  // (There is no guaranteed save order for multiple files this way - that
+  // was confirmed unfixable from a web page against WebKit's own source
+  // and the Web Share spec - so this is for "save these photos", not for
+  // when exact order matters.)
+  function buildSelectedFiles(rows, onProgress) {
+    var ordered = rows.slice().sort(function (a, b) { return a.createdAt - b.createdAt; });
+    var total = ordered.length;
+    var pad = String(total).length;
+    function yieldToPaint() { return new Promise(function (r) { setTimeout(r, 0); }); }
+    return mapWithConcurrency(ordered, 4, function (row) {
+      return asJpegBlob(row.blob).then(function (b) { return yieldToPaint().then(function () { return b; }); });
+    }, function (done) {
+      if (onProgress) onProgress('מכין תמונה ' + done + ' מתוך ' + total + '...');
+    }).then(function (blobs) {
+      return blobs.map(function (b, i) {
+        var num = String(i + 1).padStart(pad, '0');
+        return new File([b], 'memories4u-' + num + '.jpg', { type: 'image/jpeg' });
+      });
+    });
+  }
+  function deliverSelectedFiles(files) {
+    if (navigator.canShare && navigator.canShare({ files: files })) {
+      navigator.share({ files: files, title: 'Memories4U' }).catch(function (e) {
+        if (e && e.name === 'AbortError') return;
+        toast('השמירה נכשלה, נסו שוב', 3200);
+      });
+      return;
+    }
+    toast('שמירה מרוכזת לא נתמכת במכשיר הזה - אפשר לייצא PDF במקום', 4000);
+  }
+  $('gallery-save-selected-btn').addEventListener('click', function () {
+    var btn = this;
+    if (pendingSaveSelected) {
+      var files = pendingSaveSelected;
+      pendingSaveSelected = null;
+      btn.classList.remove('pulse-ready');
+      btn.textContent = '💾 שמירה (0)';
+      deliverSelectedFiles(files);
+      return;
+    }
+    var chosen = galleryRows.filter(function (row) { return gallerySelectedIds[row.id]; });
+    if (!chosen.length) { toast('לא סימנתם תמונות'); return; }
+    btn.disabled = true;
+    toast('מכין תמונה 0...', 60000);
+    buildSelectedFiles(chosen, function (msg) { toast(msg, 60000); })
+      .then(function (files) {
+        pendingSaveSelected = files;
+        btn.disabled = false;
+        btn.classList.add('pulse-ready');
+        btn.textContent = '💾 מוכן, לחצו שוב';
+        toast('מוכן - לחצו שוב על שמירה', 8000);
+      }).catch(function () { toast('ההכנה נכשלה - נסו שוב'); btn.disabled = false; });
   });
 
   // ---------- Recycle bin screen ----------
